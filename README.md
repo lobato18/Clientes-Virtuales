@@ -69,7 +69,7 @@ echo "✅ TODO LISTO. IP del Servidor: $IP_ACTUAL"
 
 Script (clonar.sh) para duplicar estaciones de trabajo de forma segura.
 Bash
-
+```bash
 #!/bin/bash
 echo "Máquinas virtuales detectadas:"
 sudo virsh list --all
@@ -93,34 +93,44 @@ if [ "$ESTADO" = "running" ]; then
     sudo virsh resume "$VM_ORIGINAL"
 fi
 echo "✅ Clonación finalizada."
+``
 
 🛠️ 3. Guía de Administración del Directorio
 Gestión de Usuarios y Grupos
 
     Añadir Usuario:
+```bash
     sudo samba-tool user add "nombre" "Contraseña123!"
-
+``
       
 
     Borrar Usuario:
+```bash
     sudo samba-tool user delete "nombre"
+``
 
       
 
     Asignar Administrador:
+```bash
     sudo samba-tool group addmembers "Domain Admins" "nombre"
+``
 
       
 
 Unidades Organizativas (OU)
 
     Crear OU:
+```bash
     sudo samba-tool ou create "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
+```
 
       
 
     Eliminar OU:
+    ```bash
     sudo samba-tool ou delete "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
+    ```
 
       
 
