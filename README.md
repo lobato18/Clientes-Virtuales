@@ -62,7 +62,8 @@ sudo systemctl enable samba-ad-dc
 sudo systemctl start samba-ad-dc
 
 echo "✅ TODO LISTO. IP del Servidor: $IP_ACTUAL"
-```bash
+
+```
 
 🖥️ 2. Automatización de Virtualización (Clonación)
 
