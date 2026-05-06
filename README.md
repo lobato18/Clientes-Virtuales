@@ -7,7 +7,7 @@ Este documento recoge la configuración completa, scripts de automatización y p
 
 Este script (dominio_final.sh) configura automáticamente la red en modo puente, instala los requisitos y provisiona el dominio.
 Bash
-
+```bash
 #!/bin/bash
 # --- 1. CONFIGURACIÓN AUTOMÁTICA DE RED (BRIDGE) ---
 PHYS_IFACE=$(ip -4 route | grep default | awk '{print $5}' | head -n1)
@@ -62,6 +62,7 @@ sudo systemctl enable samba-ad-dc
 sudo systemctl start samba-ad-dc
 
 echo "✅ TODO LISTO. IP del Servidor: $IP_ACTUAL"
+```bash
 
 🖥️ 2. Automatización de Virtualización (Clonación)
 
