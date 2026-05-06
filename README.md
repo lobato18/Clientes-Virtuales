@@ -93,6 +93,7 @@ if [ "$ESTADO" = "running" ]; then
     sudo virsh resume "$VM_ORIGINAL"
 fi
 echo "✅ Clonación finalizada."
+
 ``
 
 🛠️ 3. Guía de Administración del Directorio
@@ -101,12 +102,14 @@ Gestión de Usuarios y Grupos
     Añadir Usuario:
 ```bash
     sudo samba-tool user add "nombre" "Contraseña123!"
+
 ``
       
 
     Borrar Usuario:
 ```bash
     sudo samba-tool user delete "nombre"
+
 ``
 
       
@@ -114,6 +117,7 @@ Gestión de Usuarios y Grupos
     Asignar Administrador:
 ```bash
     sudo samba-tool group addmembers "Domain Admins" "nombre"
+
 ``
 
       
@@ -123,6 +127,7 @@ Unidades Organizativas (OU)
     Crear OU:
 ```bash
     sudo samba-tool ou create "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
+
 ```
 
       
@@ -130,6 +135,7 @@ Unidades Organizativas (OU)
     Eliminar OU:
     ```bash
     sudo samba-tool ou delete "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
+    
     ```
 
       
