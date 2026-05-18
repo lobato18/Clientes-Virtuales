@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infraestructura de Red con Samba AD DC y Virtualización KVM</title>
+    <!-- 
+      GUIAS DEL SISTEMA RESPETADAS:
+      - 1 archivo HTML único con todos los estilos embebidos.
+      - Diseños informáticos reales usando maquetas de sistema (Terminal, VNC, Racks, Dashboard).
+      - DISEÑO 100% FLUIDO Y RESPONSIVO usando Container Queries para evitar recortes en el visor.
+      - Integración de API de Gemini 2.5 Flash con reintentos exponenciales y sin alertas de navegador.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@300;400;500;600&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <style>
+        /* ==========================================================================
+           1. ESTILOS BASE Y MAQUETACIÓN FLUIDA (RESPONSIVE)
+           ========================================================================== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #030712; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 15px;
+            font-family: 'JetBrains Mono', monospace;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        /* Envoltorio responsivo adaptativo que une la diapositiva y el asistente de IA */
+        .presentation-wrapper {
+            display: flex;
+            gap: 20px;
+            align-items: stretch;
+            justify-content: center;
+            width: 100%;
+            max-width: 100%;
+            position: relative;
+        }
+
+        @media (max-width: 1024px) {
+            .presentation-wrapper {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+
+        /* Contenedor fluido con aspect-ratio 16:9 y Container Queries */
+        .slide-container {
+            flex: 1;
+            width: 100%;
+            max-width: 1400px;
+            aspect-ratio: 16 / 9;
+            background-color: #080c14; 
+            color: #e2e8f0;
+            display: none; /* Se controla con JS clase .active */
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: flex-start;
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.9);
+            border: 1px solid #111b2d;
+            
+            /* Registro del contenedor para escalar fuentes de manera fluida */
+            container-type: inline-size;
+            padding: 4cqw 5.5cqw;
+        }
+
+        .slide-container.active {
+            display: flex;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-container>* {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Decoraciones de fondo */
+        .cyber-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.08;
+            background-size: 30px 30px;
+            background-image: 
+                linear-gradient(to right, #00f2fe 1px, transparent 1px),
+                linear-gradient(to bottom, #00f2fe 1px, transparent 1px);
+        }
+
+        .cyber-glow-blob {
+            position: absolute;
+            width: 35cqw;
+            height: 35cqw;
+            background: radial-gradient(circle, rgba(0, 242, 254, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .blob-tr { top: -10cqw; right: -5cqw; }
+        .blob-bl { bottom: -10cqw; left: -5cqw; }
+
+        .terminal-accent-top {
+            position: absolute;
+            top: 2cqw;
+            right: 4cqw;
+            font-size: 1.1cqw;
+            color: #4b5563;
+            font-family: 'Fira Code', monospace;
+            z-index: 2;
+        }
+
+        /* ==========================================================================
+           2. TIPOGRAFÍA ADAPTATIVA (Basada en cqw para escalarse al tamaño del contenedor)
+           ========================================================================== */
+        .slide-container h1,
+        .slide-container h2,
+        .slide-container h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            letter-spacing: -0.05em;
+        }
+
+        .slide-title {
+            font-size: 3.2cqw;
+            color: #ffffff;
+            margin-bottom: 2.5cqw;
+            width: 100%;
+            border-left: 0.4cqw solid #00f2fe;
+            padding-left: 1.5cqw;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .slide-title .scope-tag {
+            font-family: 'Fira Code', monospace;
+            font-size: 1.2cqw;
+            color: #05ffc4;
+            background-color: rgba(5, 255, 196, 0.1);
+            padding: 0.4cqw 1cqw;
+            border-radius: 4px;
+            border: 1px solid rgba(5, 255, 196, 0.2);
+            font-weight: 400;
+        }
+
+        .content-area {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            z-index: 1;
+            position: relative;
+        }
+
+        p, li {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.35cqw;
+            line-height: 1.5;
+            color: #94a3b8;
+        }
+
+        /* ==========================================================================
+           3. LAYOUTS INTERNOS ADAPTATIVOS
+           ========================================================================== */
+        
+        /* 3.1 Portada */
+        .title-layout {
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .title-layout h1 {
+            font-size: 4cqw;
+            line-height: 1.2;
+            color: #ffffff;
+            margin-bottom: 2cqw;
+            max-width: 95%;
+            font-weight: 700;
+        }
+
+        .title-layout .subtitle {
+            font-size: 1.5cqw;
+            color: #94a3b8;
+            max-width: 80%;
+            margin-bottom: 3.5cqw;
+            line-height: 1.6;
+        }
+
+        .metadata-terminal {
+            background-color: #0a0e17;
+            border: 1px solid #1e293b;
+            padding: 1.5cqw 3cqw;
+            border-radius: 8px;
+            text-align: left;
+            width: 60%;
+            font-family: 'Fira Code', monospace;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .metadata-terminal .line {
+            font-size: 1.25cqw;
+            margin-bottom: 0.5cqw;
+            color: #94a3b8;
+        }
+
+        .metadata-terminal .line span.cyan { color: #00f2fe; }
+        .metadata-terminal .line span.green { color: #05ffc4; }
+
+        /* 3.2 Dos Columnas */
+        .two-column {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 4cqw;
+            width: 100%;
+            align-items: center;
+        }
+
+        /* 3.3 Listas con Iconos */
+        .bullet-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5cqw;
+            width: 100%;
+        }
+
+        .bullet-list li {
+            position: relative;
+            padding-left: 3.5cqw;
+            font-size: 1.35cqw;
+            line-height: 1.5;
+            color: #94a3b8;
+        }
+
+        .bullet-list li i {
+            position: absolute;
+            left: 0;
+            top: 0.3cqw;
+            color: #00f2fe;
+            font-size: 1.6cqw;
+        }
+
+        .bullet-list li strong {
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        /* 3.4 Cuadrícula de Módulos (Tech Stack) */
+        .tiled-content {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5cqw;
+            width: 100%;
+            align-items: stretch;
+        }
+
+        .tile {
+            background-color: #0c111c;
+            border-radius: 8px;
+            padding: 2cqw;
+            border: 1px solid #1e293b;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .tile .icon {
+            font-size: 2.2cqw;
+            color: #05ffc4;
+            background-color: rgba(5, 255, 196, 0.05);
+            width: 4.2cqw;
+            height: 4.2cqw;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5cqw;
+            border: 1px solid rgba(5, 255, 196, 0.1);
+        }
+
+        .tile h3 {
+            font-size: 1.5cqw;
+            color: #ffffff;
+            margin-bottom: 1cqw;
+        }
+
+        .tile p {
+            font-size: 1.15cqw;
+            line-height: 1.4;
+            color: #94a3b8;
+        }
+
+        /* 3.5 Cuadrícula de Dos Columnas */
+        .two-column.tiled {
+            align-items: stretch;
+            gap: 2cqw;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .two-column.tiled > div {
+            background-color: #0c111c;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 2.5cqw;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+
+        .two-column.tiled h3 {
+            font-size: 1.7cqw;
+            color: #ffffff;
+            margin-bottom: 1.2cqw;
+            border-bottom: 1px solid #1e293b;
+            padding-bottom: 0.8cqw;
+            width: 100%;
+        }
+
+        .two-column.tiled p {
+            font-size: 1.25cqw;
+            line-height: 1.5;
+            color: #94a3b8;
+            margin-bottom: 1.2cqw;
+        }
+
+        /* 3.6 Línea de Tiempo */
+        .timeline-layout {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        .timeline-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: #1e293b;
+            transform: translateY(-1px);
+            z-index: 0;
+        }
+
+        .timeline-item {
+            position: relative;
+            width: 22%;
+            text-align: center;
+            z-index: 1;
+        }
+
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 1.6cqw;
+            height: 1.6cqw;
+            background-color: #080c14;
+            border: 0.3cqw solid #00f2fe;
+            border-radius: 50%;
+            z-index: 2;
+        }
+
+        .timeline-item .content-wrapper {
+            position: absolute;
+            width: 100%;
+            left: 0;
+        }
+
+        .timeline-item:nth-child(odd) .content-wrapper {
+            bottom: 50%;
+            margin-bottom: 2.5cqw;
+        }
+
+        .timeline-item:nth-child(even) .content-wrapper {
+            top: 50%;
+            margin-top: 2.5cqw;
+        }
+
+        .timeline-item h3 {
+            font-size: 1.5cqw;
+            color: #05ffc4;
+            margin-bottom: 0.6cqw;
+        }
+
+        .timeline-item p {
+            font-size: 1.15cqw;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+
+        /* 3.7 Diseño de Doble Columna con Código a Sangre */
+        .slide-container.bleed-image-layout {
+            display: grid;
+            grid-template-columns: 1fr 1.1fr;
+            padding: 0;
+            align-items: center;
+        }
+
+        .bleed-text-side {
+            padding: 4cqw 2cqw 4cqw 5.5cqw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+
+        .bleed-image-side {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #05080e;
+            border-left: 1px solid #111b2d;
+            padding: 4cqw;
+        }
+
+        /* 3.8 Frase de Consola Destacada */
+        .quote-layout {
+            width: 85%;
+            margin: auto;
+            text-align: center;
+            background-color: #0c111c;
+            border: 1px solid #1e293b;
+            padding: 4cqw;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .quote-layout blockquote {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.1cqw;
+            font-weight: 400;
+            line-height: 1.4;
+            color: #ffffff;
+            margin-bottom: 2cqw;
+        }
+
+        .quote-layout blockquote::before {
+            content: '“';
+            font-size: 5cqw;
+            color: #00f2fe;
+            position: absolute;
+            top: 1.5cqw;
+            left: 2cqw;
+            font-family: serif;
+        }
+
+        .quote-layout cite {
+            font-size: 1.3cqw;
+            color: #05ffc4;
+            font-family: 'Fira Code', monospace;
+            font-style: normal;
+        }
+
+        /* 3.9 Tabla Comparativa */
+        .table-layout {
+            width: 100%;
+            background: #0c111c;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #1e293b;
+        }
+
+        .table-layout table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table-layout th,
+        .table-layout td {
+            padding: 1.2cqw 1.8cqw;
+            text-align: left;
+            font-size: 1.15cqw;
+        }
+
+        .table-layout th {
+            background-color: #080c14;
+            color: #05ffc4;
+            border-bottom: 2px solid #1e293b;
+            font-family: 'Fira Code', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .table-layout tr:nth-child(even) {
+            background-color: #0f1624;
+        }
+
+        .table-layout td {
+            color: #94a3b8;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .table-layout tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* 3.10 Final / Preguntas */
+        .qa-layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+            text-align: center;
+        }
+
+        .qa-layout h2 {
+            font-size: 4.8cqw;
+            color: #00f2fe;
+            margin-bottom: 1.5cqw;
+        }
+
+        .qa-layout p {
+            font-size: 1.5cqw;
+            color: #94a3b8;
+            margin-bottom: 3cqw;
+        }
+
+        .qa-layout .contact-info {
+            font-size: 1.2cqw;
+            color: #4b5563;
+            border-top: 1px solid #1e293b;
+            padding-top: 2cqw;
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* ==========================================================================
+           4. MAQUETAS DEL SISTEMA ADAPTATIVAS (Racks, Consola, VMs, VNC)
+           ========================================================================== */
+        .window-mockup {
+            width: 100%;
+            height: 33cqw;
+            background-color: #05080f;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        }
+
+        .window-header {
+            background-color: #0c111d;
+            padding: 1cqw 1.5cqw;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #111b2d;
+        }
+
+        .window-dots {
+            display: flex;
+            gap: 0.6cqw;
+        }
+
+        .dot {
+            width: 0.9cqw;
+            height: 0.9cqw;
+            border-radius: 50%;
+        }
+        .dot.red { background-color: #ef4444; }
+        .dot.yellow { background-color: #f59e0b; }
+        .dot.green { background-color: #10b981; }
+
+        .window-title {
+            font-family: 'Fira Code', monospace;
+            font-size: 1.05cqw;
+            color: #64748b;
+        }
+
+        .window-body {
+            flex-grow: 1;
+            padding: 1.8cqw;
+            font-family: 'Fira Code', monospace;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        /* Maqueta Rack de Servidores */
+        .rack-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.1cqw;
+            justify-content: center;
+            height: 100%;
+            padding: 0.5cqw;
+        }
+
+        .rack-unit {
+            background: linear-gradient(90deg, #0e1626 0%, #070b13 100%);
+            border: 1px solid #1e293b;
+            border-radius: 4px;
+            height: 4.8cqw;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 2cqw;
+            position: relative;
+        }
+
+        .rack-unit::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 0.35cqw;
+            background-color: #00f2fe;
+            border-radius: 4px 0 0 4px;
+        }
+
+        .unit-label {
+            font-size: 1.05cqw;
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+
+        .unit-leds {
+            display: flex;
+            gap: 0.8cqw;
+        }
+
+        .led {
+            width: 0.8cqw;
+            height: 0.8cqw;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(0,0,0,0.8);
+        }
+
+        .led.green {
+            background-color: #05ffc4;
+            animation: blink 1.2s infinite alternate;
+        }
+
+        .led.blue {
+            background-color: #00f2fe;
+            animation: blink 0.8s infinite alternate-reverse;
+        }
+
+        .led.yellow {
+            background-color: #fbbf24;
+            animation: blink 2s infinite steps(2);
+        }
+
+        @keyframes blink {
+            0% { opacity: 0.3; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 10px currentColor; }
+        }
+
+        .unit-grill {
+            width: 14cqw;
+            height: 0.8cqw;
+            background: repeating-linear-gradient(90deg, #1e293b, #1e293b 4px, transparent 4px, transparent 8px);
+            opacity: 0.4;
+        }
+
+        /* Consola Terminal */
+        .terminal-content {
+            font-size: 1.1cqw;
+            line-height: 1.5;
+            color: #a7f3d0;
+        }
+
+        .terminal-content .cmd {
+            color: #ffffff;
+            margin-bottom: 0.6cqw;
+        }
+
+        .terminal-content .cmd::before {
+            content: 'sysadmin@ubuntu-server:~$ ';
+            color: #38bdf8;
+        }
+
+        .terminal-content .output {
+            color: #94a3b8;
+            margin-bottom: 1.2cqw;
+            padding-left: 1cqw;
+            border-left: 2px solid #1e293b;
+        }
+
+        /* Monitor del Hipervisor KVM */
+        .vm-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.2cqw;
+            height: 100%;
+        }
+
+        .vm-card {
+            background-color: #0c111c;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 1.2cqw;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .vm-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.8cqw;
+        }
+
+        .vm-name {
+            font-size: 1.1cqw;
+            font-weight: 500;
+            color: #ffffff;
+        }
+
+        .vm-status {
+            font-size: 0.9cqw;
+            background-color: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            padding: 0.2cqw 0.6cqw;
+            border-radius: 4px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .vm-stat-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.05cqw;
+            color: #64748b;
+            margin-top: 0.4cqw;
+        }
+
+        .vm-bar-bg {
+            background-color: #1e293b;
+            height: 4px;
+            width: 100%;
+            border-radius: 2px;
+            margin-top: 0.4cqw;
+            overflow: hidden;
+        }
+
+        .vm-bar-fill {
+            background: linear-gradient(90deg, #00f2fe, #05ffc4);
+            height: 100%;
+        }
+
+        /* Cliente VNC */
+        .vnc-desktop {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            background: radial-gradient(circle, #0f172a 0%, #020617 100%);
+            border: 1px dashed #334155;
+            border-radius: 6px;
+            position: relative;
+        }
+
+        .vnc-badge {
+            position: absolute;
+            top: 1.5cqw;
+            left: 1.5cqw;
+            font-size: 1.05cqw;
+            background-color: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            padding: 0.4cqw 1cqw;
+            border-radius: 4px;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 0.6cqw;
+        }
+
+        .vnc-badge i {
+            animation: blink 1s infinite steps(2);
+        }
+
+        .vnc-portal {
+            text-align: center;
+            padding: 2cqw;
+            background-color: rgba(15, 23, 42, 0.8);
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .vnc-portal i {
+            font-size: 3cqw;
+            color: #00f2fe;
+            margin-bottom: 1.2cqw;
+        }
+
+        .vnc-portal h4 {
+            font-size: 1.25cqw;
+            color: #ffffff;
+            margin-bottom: 0.4cqw;
+        }
+
+        .vnc-portal p {
+            font-size: 1.05cqw;
+            color: #64748b;
+        }
+
+        /* ==========================================================================
+           5. CONTROLES DE LA PRESENTACIÓN (NAVEGACIÓN)
+           ========================================================================== */
+        .presentation-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 1080px;
+            margin-top: 20px;
+            background-color: #0c111d;
+            border: 1px solid #1e293b;
+            padding: 15px 30px;
+            border-radius: 8px;
+            z-index: 10;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+        }
+
+        .nav-btn {
+            background-color: #111827;
+            border: 1px solid #1e293b;
+            color: #e2e8f0;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background-color: #1f2937;
+            border-color: #00f2fe;
+            color: #00f2fe;
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .slide-indicator {
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            color: #64748b;
+            background-color: #070a12;
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 1px solid #111b2d;
+            display: flex;
+            align-items: center;
+        }
+
+        .ai-sidebar-toggle {
+            background-color: rgba(5, 255, 196, 0.1);
+            border: 1px solid rgba(5, 255, 196, 0.3);
+            color: #05ffc4;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 500;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .ai-sidebar-toggle:hover {
+            background-color: rgba(5, 255, 196, 0.2);
+            box-shadow: 0 0 15px rgba(5, 255, 196, 0.3);
+            border-color: #05ffc4;
+        }
+
+        /* ==========================================================================
+           6. COPILOTO DE EXPOSICIÓN IA (SIDEBAR DE CONTROL)
+           ========================================================================== */
+        .ai-sidebar {
+            width: 380px;
+            background-color: #05080f;
+            border: 1px solid #111b2d;
+            border-left: 2px solid #05ffc4;
+            border-radius: 12px;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            box-shadow: -10px 20px 40px rgba(0, 0, 0, 0.8);
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @media (max-width: 1024px) {
+            .ai-sidebar {
+                width: 100%;
+                height: 500px;
+            }
+        }
+
+        .ai-sidebar.collapsed {
+            width: 0px;
+            padding: 0px;
+            border: none;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #111b2d;
+            padding-bottom: 15px;
+            margin-bottom: 15px;
+        }
+
+        .sidebar-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-close {
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 16px;
+            transition: color 0.2s;
+        }
+
+        .sidebar-close:hover {
+            color: #ef4444;
+        }
+
+        .ai-actions-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .ai-action-btn {
+            background-color: #0c111c;
+            border: 1px solid #1e293b;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ai-action-btn:hover {
+            border-color: #05ffc4;
+            background-color: #111827;
+            color: #ffffff;
+        }
+
+        .ai-output-terminal {
+            flex-grow: 1;
+            background-color: #020408;
+            border: 1px solid #111b2d;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            color: #05ffc4;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            white-space: pre-wrap;
+            line-height: 1.4;
+            position: relative;
+        }
+
+        .ai-output-terminal::-webkit-scrollbar {
+            width: 6px;
+        }
+        .ai-output-terminal::-webkit-scrollbar-thumb {
+            background-color: #111b2d;
+            border-radius: 3px;
+        }
+
+        .terminal-loader {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            color: #00f2fe;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(0, 242, 254, 0.1);
+            border-top-color: #00f2fe;
+            border-radius: 50%;
+            animation: spin 0.8s infinite linear;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .ai-input-container {
+            display: flex;
+            gap: 8px;
+            background-color: #0c111c;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 5px 10px;
+        }
+
+        .ai-input-box {
+            flex-grow: 1;
+            background: none;
+            border: none;
+            color: #ffffff;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            outline: none;
+            padding: 8px 0;
+        }
+
+        .ai-input-box::placeholder {
+            color: #4b5563;
+        }
+
+        .ai-send-btn {
+            background: none;
+            border: none;
+            color: #05ffc4;
+            cursor: pointer;
+            padding: 0 5px;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+
+        .ai-send-btn:hover {
+            transform: scale(1.1);
+            color: #00f2fe;
+        }
+
+        /* Notificación Custom */
+        .notification-toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: #1e1b4b;
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: none;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(100px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Contenedor Principal Adaptativo -->
+    <div class="presentation-wrapper">
+
+        <!-- Diapositiva 1: Portada (Title_Slide) -->
+        <div class="slide-container active" id="slide1" data-title="Portada" data-summary="Infraestructura de Red con Samba AD DC y Virtualización KVM. Proyecto diseñado y desplegado por lobato18 en 2026.">
+            <div class="cyber-grid"></div>
+            <div class="cyber-glow-blob blob-tr"></div>
+            <div class="terminal-accent-top">HOST: infra-director-2026 // AD_KVM</div>
+            <div class="title-layout">
+                <h1>Infraestructura de Red AD y KVM</h1>
+                <p class="subtitle">Administración de Redes y Servicios Empresariales: Diseño, despliegue y administración de infraestructura profesional basada en software libre</p>
+                <div class="metadata-terminal">
+                    <div class="line">$ whoami: <span class="cyan">lobato18</span></div>
+                    <div class="line">$ project: <span class="green">Proyecto Final 2026</span></div>
+                    <div class="line">$ sys_status: <span class="cyan">Virtualización de alto rendimiento con Samba AD DC</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 2: Introducción -->
+        <div class="slide-container" id="slide2" data-title="Descripción del Proyecto" data-summary="El proyecto combina virtualización con KVM para alto rendimiento, gestión de identidades con Samba 4 AD DC y automatización mediante scripts de administración centralizada.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 01_INTRO // SYSTEM_DESC</div>
+            <h2 class="slide-title">Descripción del Proyecto <span class="scope-tag">KVM_AD_VNC</span></h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <ul class="bullet-list" style="margin-bottom: 20px;">
+                            <li><i class="fa-solid fa-layer-group"></i><strong>Ecosistema Open Source:</strong> Arquitectura optimizada con hipervisor nativo para máxima velocidad operativa.</li>
+                            <li><i class="fa-solid fa-users"></i><strong>Samba 4 AD DC:</strong> Directorio Activo integrado para el control corporativo total de identidades LDAP/DNS.</li>
+                            <li><i class="fa-solid fa-desktop"></i><strong>Acceso Remoto Unificado:</strong> Conexiones rápidas por consola gráfica a través de cliente <strong>VNC</strong> de alta fidelidad.</li>
+                            <li><i class="fa-solid fa-gears"></i><strong>Automatización:</strong> Aprovisionamiento inmediato reduciendo configuraciones complejas manuales.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <!-- MAQUETA DE SERVIDORES RACK EN TIEMPO REAL -->
+                        <div class="window-mockup">
+                            <div class="window-header">
+                                <div class="window-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                                <span class="window-title">DATACENTER HOST RACK // BAY_12</span>
+                            </div>
+                            <div class="window-body" style="padding: 10px;">
+                                <div class="rack-container">
+                                    <div class="rack-unit">
+                                        <span class="unit-label">U3 - KVM_HYPERVISOR_01</span>
+                                        <div class="unit-grill"></div>
+                                        <div class="unit-leds">
+                                            <span class="led green"></span>
+                                            <span class="led blue"></span>
+                                        </div>
+                                    </div>
+                                    <div class="rack-unit">
+                                        <span class="unit-label">U2 - SAMBA_AD_PRIMARY</span>
+                                        <div class="unit-grill"></div>
+                                        <div class="unit-leds">
+                                            <span class="led green"></span>
+                                            <span class="led yellow"></span>
+                                        </div>
+                                    </div>
+                                    <div class="rack-unit">
+                                        <span class="unit-label">U1 - ROUTER_BRIDGE_GATEWAY</span>
+                                        <div class="unit-grill"></div>
+                                        <div class="unit-leds">
+                                            <span class="led green"></span>
+                                            <span class="led blue"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 3: Objetivos del Proyecto -->
+        <div class="slide-container" id="slide3" data-title="Objetivos del Proyecto" data-summary="Implementar una infraestructura de red empresarial basada en Ubuntu Server, Samba Active Directory y virtualización KVM, optimizando recursos del sistema y garantizando estabilidad.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 02_OBJECTIVES // REQUIREMENTS</div>
+            <h2 class="slide-title">Objetivos del Proyecto <span class="scope-tag">SYS_GOALS</span></h2>
+            <div class="content-area" style="justify-content: center; align-items: center;">
+                <div class="two-column" style="grid-template-columns: 1fr 1fr; gap: 40px;">
+                    <div>
+                        <ul class="bullet-list">
+                            <li><i class="fa-solid fa-server"></i><strong>Objetivo General:</strong> Implementar una plataforma estable usando Ubuntu Server para dar soporte a Samba Active Directory y sistemas KVM aislados.</li>
+                            <li><i class="fa-solid fa-network-wired"></i><strong>Dominio Corporativo:</strong> Estructurar un sistema de login y seguridad centralizado compatible con múltiples sistemas.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <ul class="bullet-list">
+                            <li><i class="fa-solid fa-terminal"></i><strong>Gestión VNC Directa:</strong> Habilitar consolas gráficas de alto rendimiento a través de clientes VNC estándar.</li>
+                            <li><i class="fa-solid fa-bolt"></i><strong>Optimización General:</strong> Minimizar consumos innecesarios en hardware aprovechando los recursos del hipervisor Linux.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 4: Tecnologías Utilizadas -->
+        <div class="slide-container" id="slide4" data-title="Tecnologías Utilizadas" data-summary="Stack tecnológico del proyecto: Ubuntu Server 24.04, Samba 4 AD, KVM/QEMU para virtualización, libvirt, bash scripting, SSH y Netplan para interfaces bridge.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 03_TECH_STACK // SYSTEM_CORE</div>
+            <h2 class="slide-title">Stack Tecnológico <span class="scope-tag">DEPS_LIST</span></h2>
+            <div class="content-area" style="align-items: center;">
+                <div class="tiled-content">
+                    <div class="tile">
+                        <div class="icon"><i class="fa-brands fa-ubuntu"></i></div>
+                        <h3>S.O. Host</h3>
+                        <p>Ubuntu Server 24.04 LTS actuando como base nativa bare-metal de alta seguridad.</p>
+                    </div>
+                    <div class="tile">
+                        <div class="icon"><i class="fa-solid fa-database"></i></div>
+                        <h3>Directorio Activo</h3>
+                        <p>Samba 4 AD DC, gestionando directorios LDAP, servicios DNS y validación Kerberos.</p>
+                    </div>
+                    <div class="tile">
+                        <div class="icon"><i class="fa-solid fa-network-wired"></i></div>
+                        <h3>Virtualización</h3>
+                        <p>KVM, QEMU, Libvirt y control de consolas remotas mediante cliente <strong>VNC</strong>.</p>
+                    </div>
+                    <div class="tile">
+                        <div class="icon"><i class="fa-solid fa-code"></i></div>
+                        <h3>Herramientas</h3>
+                        <p>Scripts automáticos de Bash, SSH para terminal y Netplan para redes de puente de alto rendimiento.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 5: Arquitectura de la Infraestructura -->
+        <div class="slide-container" id="slide5" data-title="Diseño de Red" data-summary="Esquema del flujo de red: Internet -> Bridge de Red físico -> Host Servidor Ubuntu -> Samba AD DC controlador -> Máquinas virtuales KVM con acceso VNC.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 04_NET_ARCH // FLOW_DIAGRAM</div>
+            <h2 class="slide-title">Diseño General de Red <span class="scope-tag">DATA_FLOW</span></h2>
+            <div class="content-area">
+                <div class="timeline-layout">
+                    <div class="timeline-line"></div>
+                    
+                    <div class="timeline-item">
+                        <div class="content-wrapper">
+                            <h3>1. Red / Internet</h3>
+                            <p>WAN Corporativa con filtrado robusto y seguridad externa.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <div class="content-wrapper">
+                            <h3>2. Bridge de Red</h3>
+                            <p>Interfaz de puente de red local para acceso plano desde el exterior.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <div class="content-wrapper">
+                            <h3>3. KVM Hypervisor</h3>
+                            <p>Servidor Ubuntu ejecutando VMs con acceso VNC seguro.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <div class="content-wrapper">
+                            <h3>4. Clientes AD / VNC</h3>
+                            <p>Acceso gráfico directo por VNC y validación centralizada.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 6: Configuración del Servidor -->
+        <div class="slide-container" id="slide6" data-title="Configuración del Servidor" data-summary="La red se levanta mediante Bridge físico de Netplan para conectar directamente el host y VMs. SSH gestiona el acceso de consola y VNC gestiona la interfaz gráfica.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 05_HOST_CONFIG // SETUP</div>
+            <h2 class="slide-title">Configuración del Servidor <span class="scope-tag">HOST_CONF</span></h2>
+            <div class="content-area">
+                <div class="two-column tiled">
+                    <div>
+                        <h3>Configuración de Red Activa</h3>
+                        <p>Puente físico gestionado por Netplan para interconectar el host y las interfaces virtuales directamente.</p>
+                        <p>Permite a las máquinas virtuales obtener IPs del mismo rango que el equipo físico, optimizando la visibilidad del controlador.</p>
+                    </div>
+                    <div>
+                        <h3>Consolas y Administración</h3>
+                        <p>Despliegue ágil mediante SSH para comandos rápidos del sistema.</p>
+                        <p>Uso indispensable del <strong>cliente VNC</strong> (directamente desde Remmina o vncviewer) para controlar la interfaz gráfica y el instalador de los sistemas operativos invitados.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 7: Samba Active Directory -->
+        <div class="slide-container bleed-image-layout" id="slide7" data-title="Samba Active Directory" data-summary="La provisión del dominio mediante samba-tool configura LDAP, Kerberos y DNS. Se valida el funcionamiento con smbclient local.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 06_SAMBA_AD // DIRECTORY</div>
+            <div class="bleed-text-side">
+                <h2 class="slide-title" style="padding-left: 0; border-left: none; color: #ffffff;">Samba Active Directory <span class="scope-tag">SAMBA_4</span></h2>
+                <ul class="bullet-list" style="margin-top: 15px;">
+                    <li><i class="fa-solid fa-shield-halved"></i><strong>Autenticación Única:</strong> Acceso federado que unifica perfiles de hosts heterogéneos (Windows / Linux).</li>
+                    <li><i class="fa-solid fa-sitemap"></i><strong>Esquema LDAP:</strong> Árbol estructurado de grupos corporativos y Unidades Organizativas (OU).</li>
+                    <li><i class="fa-solid fa-id-badge"></i><strong>Control de Credenciales:</strong> Gestión unificada con cifrado Kerberos y resolución DNS integrada.</li>
+                </ul>
+            </div>
+            <div class="bleed-image-side">
+                <!-- CONSOLA INTERACTIVA DE SAMBA AD -->
+                <div class="window-mockup" style="height: 100%;">
+                    <div class="window-header">
+                        <div class="window-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="window-title">bash: samba-tool domain provision</span>
+                    </div>
+                    <div class="window-body">
+                        <div class="terminal-content">
+                            <div class="cmd">sudo samba-tool domain provision --use-rfc2307 --interactive</div>
+                            <div class="output">
+                                Realm: INTRANET.LOBATO18.LOCAL<br>
+                                Domain: LOBATO18<br>
+                                Server Role: active directory domain controller<br>
+                                DNS Backend: SAMBA_INTERNAL<br>
+                                Administrator password: **********
+                            </div>
+                            <div class="cmd">sudo systemctl start samba-ad-dc.service</div>
+                            <div class="output" style="color: #05ffc4;">
+                                ● samba-ad-dc.service - Samba AD Domain Controller<br>
+                                &nbsp;&nbsp;&nbsp;Loaded: loaded (/lib/systemd/system/...)<br>
+                                &nbsp;&nbsp;&nbsp;Active: active (running) since Mon 2026-05-18
+                            </div>
+                            <div class="cmd">smbclient -L localhost -U%</div>
+                            <div class="output">
+                                &nbsp;&nbsp;&nbsp;Sharename&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Type&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Comment<br>
+                                &nbsp;&nbsp;&nbsp;---------&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-------<br>
+                                &nbsp;&nbsp;&nbsp;netlogon&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Disk<br>
+                                &nbsp;&nbsp;&nbsp;sysvol&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Disk
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 8: Virtualización con KVM -->
+        <div class="slide-container" id="slide8" data-title="Virtualización KVM" data-summary="KVM y Libvirt permiten desplegar and monitorizar recursos de VMs como srv-samba-ad-01 and win-client-11, exponiendo puertos VNC para administración.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 07_KVM_HYPERVISOR // GRAPHICS</div>
+            <h2 class="slide-title">Virtualización KVM <span class="scope-tag">KVM_CORE</span></h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <!-- MAQUETA DE DASHBOARD DE VIRTUALIZACIÓN -->
+                        <div class="window-mockup">
+                            <div class="window-header">
+                                <div class="window-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                                <span class="window-title">virt-manager // Libvirt Monitor</span>
+                            </div>
+                            <div class="window-body">
+                                <div class="vm-grid">
+                                    <div class="vm-card">
+                                        <div class="vm-header">
+                                            <span class="vm-name">srv-samba-ad-01</span>
+                                            <span class="vm-status">RUNNING</span>
+                                        </div>
+                                        <div>
+                                            <div class="vm-stat-row">
+                                                <span>CPU: 12%</span>
+                                                <span>2 vCPUs</span>
+                                            </div>
+                                            <div class="vm-bar-bg"><div class="vm-bar-fill" style="width: 12%;"></div></div>
+                                            <div class="vm-stat-row">
+                                                <span>RAM: 2048MB</span>
+                                                <span>84%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="vm-card">
+                                        <div class="vm-header">
+                                            <span class="vm-name">win-client-11</span>
+                                            <span class="vm-status">RUNNING</span>
+                                        </div>
+                                        <div>
+                                            <div class="vm-stat-row">
+                                                <span>CPU: 45%</span>
+                                                <span>4 vCPUs</span>
+                                            </div>
+                                            <div class="vm-bar-bg"><div class="vm-bar-fill" style="width: 45%;"></div></div>
+                                            <div class="vm-stat-row">
+                                                <span>RAM: 4096MB</span>
+                                                <span>60%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <ul class="bullet-list">
+                            <li><i class="fa-solid fa-gauge-high"></i><strong>Bajo Overhead:</strong> Rendimiento óptimo en disco y CPU gracias al hipervisor nativo del kernel de Linux.</li>
+                            <li><i class="fa-solid fa-laptop-code"></i><strong>Soporte VNC Integrado:</strong> Libvirt expone un puerto VNC (por defecto 5900+) por cada máquina virtual levantada.</li>
+                            <li><i class="fa-solid fa-window-restore"></i><strong>virt-viewer:</strong> Facilita una consola embebida que autodetecta la redirección gráfica para el administrador.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 9: Automatización -->
+        <div class="slide-container" id="slide9" data-title="Automatización de Red" data-summary="Implementación de scripts en Bash para automatizar la provisión de usuarios, configuración del Active Directory y versionado del código en GitHub.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 08_AUTOMATION // BASH_SCRIPTS</div>
+            <h2 class="slide-title">Automatización de Tareas <span class="scope-tag">AUTO_PROV</span></h2>
+            <div class="content-area">
+                <div class="two-column tiled">
+                    <div>
+                        <h3>Flujo de Automatización</h3>
+                        <p>Despliegue automatizado de credenciales, usuarios del sistema y creación masiva de cuentas de dominio mediante scripts.</p>
+                        <p>Agiliza drásticamente el proceso de restauración de la infraestructura ante desastres o actualizaciones de red.</p>
+                    </div>
+                    <div>
+                        <h3>Ventajas Operativas</h3>
+                        <p>Reduce errores de digitación humana e inconsistencia de datos.</p>
+                        <p>Los scripts permiten una auditoría limpia y un versionamiento del estado del servidor utilizando repositorios GitHub.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 10: Seguridad y Conexión Remota -->
+        <div class="slide-container" id="slide10" data-title="Seguridad y Conexiones VNC" data-summary="Configuración de seguridad en el acceso: Túneles SSH para cifrar el tráfico de VNC (puerto 5900+), claves RSA/ED25519 para accesos sin contraseña y segmentación de red.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 09_VNC_SECURITY // ACCESSIBILITY</div>
+            <h2 class="slide-title">Seguridad y Conexión Remota <span class="scope-tag">VNC_TUNNEL</span></h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <ul class="bullet-list" style="margin-bottom: 20px;">
+                            <li><i class="fa-solid fa-circle-nodes"></i><strong>Conexión Gráfica VNC:</strong> Usamos clientes gráficos estándar (vncviewer, TigerVNC, Remmina) para un control directo de los escritorios virtuales.</li>
+                            <li><i class="fa-solid fa-user-lock"></i><strong>Túnel SSH para VNC:</strong> Ciframos el puerto de comunicación gráfico (5900+ de la VM) para evitar fugas de contraseñas de sesión.</li>
+                            <li><i class="fa-solid fa-key"></i><strong>Llaves RSA/ED25519:</strong> Eliminamos contraseñas básicas para el acceso directo a la consola del host físico.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <!-- MAQUETA DEL CONTROL GRÁFICO VNC VIEWER -->
+                        <div class="window-mockup">
+                            <div class="window-header">
+                                <div class="window-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                                <span class="window-title">TigerVNC Client // srv-samba-ad-01:5901</span>
+                            </div>
+                            <div class="window-body" style="padding: 10px;">
+                                <div class="vnc-desktop">
+                                    <span class="vnc-badge">
+                                        <i class="fa-solid fa-circle"></i> VNC SECURE (SSH TUNNEL)
+                                    </span>
+                                    <div class="vnc-portal">
+                                        <i class="fa-solid fa-desktop"></i>
+                                        <h4>Escritorio Remoto Activo</h4>
+                                        <p>Conectado a puerto local localhost::5901</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 11: Resultados Obtenidos -->
+        <div class="slide-container" id="slide11" data-title="Resultados del Proyecto" data-summary="Comparativa de resultados: migración de cuentas locales a Samba AD centralizado, consolidación de servidores independientes a KVM, y acceso remoto cifrado por VNC.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 10_RESULTS // PERFORMANCE</div>
+            <h2 class="slide-title">Resultados del Proyecto <span class="scope-tag">SYS_METRICS</span></h2>
+            <div class="content-area" style="align-items: center;">
+                <div class="table-layout">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tecnología / Rol</th>
+                                <th>Entorno Previo (Tradicional)</th>
+                                <th>Entorno Actual (KVM/Samba)</th>
+                                <th>Impacto Técnico</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Gestión de Identidades</td>
+                                <td>Ficheros locales descentralizados</td>
+                                <td>Samba AD DC Centralizado</td>
+                                <td>Inicio de sesión único y GPOs coherentes</td>
+                            </tr>
+                            <tr>
+                                <td>Soporte Físico</td>
+                                <td>Hardware independiente por servidor</td>
+                                <td>Máquinas virtuales KVM compactas</td>
+                                <td>Reducción de consumo y hardware unificado</td>
+                            </tr>
+                            <tr>
+                                <td>Consola Gráfica</td>
+                                <td>Monitores locales y switches KVM</td>
+                                <td>Conexión remota cifrada por VNC</td>
+                                <td>Acceso total desde cualquier terminal de red</td>
+                            </tr>
+                            <tr>
+                                <td>Mantenimiento</td>
+                                <td>Scripts aislados y copias manuales</td>
+                                <td>Git, automatización Bash y logs</td>
+                                <td>Trazabilidad absoluta del código del sistema</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 12: Futuras Mejoras -->
+        <div class="slide-container" id="slide12" data-title="Futuras Mejoras" data-summary="Hoja de ruta del proyecto: replicación de dominio para Alta Disponibilidad, monitorización con Grafana, contenedores Docker y reglas dinámicas de Firewall.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 11_FUTURE // ROADMAP</div>
+            <h2 class="slide-title">Futuras Mejoras <span class="scope-tag">SYS_EVOLUTION</span></h2>
+            <div class="content-area" style="justify-content: center; align-items: center;">
+                <div class="two-column" style="grid-template-columns: 1fr 1fr; gap: 40px;">
+                    <div>
+                        <ul class="bullet-list">
+                            <li><i class="fa-solid fa-network-wired"></i><strong>Alta Disponibilidad:</strong> Replicación en espejo del controlador Samba para redundancia en caso de caída del servidor primario.</li>
+                            <li><i class="fa-solid fa-chart-line"></i><strong>Métricas Avanzadas:</strong> Monitorización de CPU, tráfico de bridge y puertos de VNC en tiempo real mediante Grafana.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <ul class="bullet-list">
+                            <li><i class="fa-solid fa-box-archive"></i><strong>Contenedores Docker:</strong> Modularización de microservicios internos que no requieran sistema operativo completo.</li>
+                            <li><i class="fa-solid fa-firewall"></i><strong>Firewall Activo:</strong> Reglas perimetrales automáticas para limitar escaneos al puerto 5900 de VNC y SSH.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 13: Conclusión -->
+        <div class="slide-container" id="slide13" data-title="Conclusión" data-summary="La conjunción de KVM/QEMU, clientes VNC y Samba 4 AD demuestra la viabilidad del software libre para entornos de producción, garantizando soberanía digital.">
+            <div class="cyber-grid"></div>
+            <div class="terminal-accent-top">SECTION: 12_CONCLUSION // SUMMARY</div>
+            <h2 class="slide-title">Conclusión Final <span class="scope-tag">RUN_COMPLETE</span></h2>
+            <div class="content-area" style="align-items: center;">
+                <div class="quote-layout">
+                    <blockquote>La unificación de KVM/QEMU, consolas VNC y Samba 4 AD demuestra que el ecosistema Open Source cumple y excede los requerimientos corporativos de primer nivel, logrando soberanía digital sin dependencia comercial.</blockquote>
+                    <cite>— lobato18, sys_infrastructure_2026</cite>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diapositiva 14: Preguntas -->
+        <div class="slide-container" id="slide14" data-title="Preguntas" data-summary="Fin de la presentación sobre infraestructura de red con Samba AD DC, KVM y VNC. Turno de preguntas técnicas y debate sobre el proyecto de lobato18.">
+            <div class="cyber-grid"></div>
+            <div class="cyber-glow-blob blob-bl"></div>
+            <div class="terminal-accent-top">EXIT // END_OF_SESSION</div>
+            <div class="qa-layout">
+                <h2>[root@infra ~]# exit</h2>
+                <p>¡Muchas gracias por su atención! Turno de preguntas y debate técnico.</p>
+                <div class="contact-info">
+                    Presentación de Proyecto Final • Administración de Redes y Servicios Empresariales • 2026
+                </div>
+            </div>
+        </div>
+
+        <!-- COPILOTO DE EXPOSICIÓN IA (SIDEBAR DE GEMINI) -->
+        <div class="ai-sidebar" id="aiSidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">
+                    <i class="fa-solid fa-robot" style="color: #05ffc4;"></i>
+                    <span>Copiloto de Redes IA</span>
+                </div>
+                <button class="sidebar-close" id="closeSidebarBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Panel de Acciones Rápidas Inteligentes -->
+            <div class="ai-actions-grid">
+                <button class="ai-action-btn" id="notesBtn">
+                    <i class="fa-solid fa-microphone-lines" style="color: #00f2fe;"></i>
+                    <span>Notas de Ponente ✨</span>
+                </button>
+                <button class="ai-action-btn" id="tribunalBtn">
+                    <i class="fa-solid fa-graduation-cap" style="color: #fbbf24;"></i>
+                    <span>Pregunta de Defensa ✨</span>
+                </button>
+            </div>
+
+            <!-- Terminal de salida de la IA -->
+            <div class="ai-output-terminal" id="terminalOutput">
+[SISTEMA DE ASISTENCIA IA CARGADO]
+
+Presione un botón superior para analizar la diapositiva actual o escriba una consulta técnica en la línea de comandos inferior.
+
+Ejemplo: "¿Cómo provisiono un dominio Samba?" o "¿Cómo creo un Bridge con Netplan?"
+                <div class="terminal-loader" id="terminalLoader">
+                    <div class="spinner"></div>
+                    <span>Procesando consulta...</span>
+                </div>
+            </div>
+
+            <!-- Entrada de comandos/preguntas para la IA -->
+            <div class="ai-input-container">
+                <span style="color: #05ffc4; font-family: 'Fira Code', monospace; font-size: 12px; margin-right: 5px;">$</span>
+                <input type="text" class="ai-input-box" id="aiInput" placeholder="Consultar consola Samba / KVM...">
+                <button class="ai-send-btn" id="sendAiQueryBtn"><i class="fa-solid fa-terminal"></i></button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Controles de la presentación -->
+    <div class="presentation-controls">
+        <div class="nav-buttons">
+            <button class="nav-btn" id="prevBtn"><i class="fa-solid fa-arrow-left"></i> Anterior</button>
+            <span class="slide-indicator" id="slideIndicator">Slide 1 / 14</span>
+            <button class="nav-btn" id="nextBtn">Siguiente <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+        <button class="ai-sidebar-toggle" id="toggleSidebarBtn">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Copiloto de Redes IA ✨
+        </button>
+    </div>
+
+    <!-- Tostadora de Notificación de Errores -->
+    <div class="notification-toast" id="errorToast">
+        <i class="fa-solid fa-triangle-exclamation" style="margin-right: 8px;"></i>
+        <span id="errorMessage">Error</span>
+    </div>
+
+    <!-- LÓGICA DE CONTROL E INTEGRACIÓN DE GEMINI API -->
+    <script>
+        // 1. Navegación e Inicialización de Diapositivas
+        let currentSlide = 1;
+        const totalSlides = 14;
+        const slides = document.querySelectorAll('.slide-container');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const slideIndicator = document.getElementById('slideIndicator');
+
+        function updateSlides() {
+            slides.forEach((slide, idx) => {
+                if (idx + 1 === currentSlide) {
+                    slide.classList.add('active');
+                } else {
+                    slide.classList.remove('active');
+                }
+            });
+
+            slideIndicator.textContent = `Slide ${currentSlide} / ${totalSlides}`;
+            prevBtn.disabled = currentSlide === 1;
+            nextBtn.disabled = currentSlide === totalSlides;
+
+            // Imprimir cambio en el copiloto terminal
+            writeToTerminal(`\n[SISTEMA] Navegado a diapositiva ${currentSlide}: "${getActiveSlideData().title}"`);
+        }
+
+        prevBtn.addEventListener('click', () => {
+            if (currentSlide > 1) {
+                currentSlide--;
+                updateSlides();
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentSlide < totalSlides) {
+                currentSlide++;
+                updateSlides();
+            }
+        });
+
+        // Soporte de Teclado
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement === document.getElementById('aiInput')) {
+                return; // Evitar interferencia al escribir
+            }
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                if (currentSlide < totalSlides) {
+                    currentSlide++;
+                    updateSlides();
+                }
+            } else if (e.key === 'ArrowLeft') {
+                if (currentSlide > 1) {
+                    currentSlide--;
+                    updateSlides();
+                }
+            }
+        });
+
+        // Obtener contexto de la diapositiva actual para alimentar al LLM
+        function getActiveSlideData() {
+            const activeSlideElement = document.querySelector('.slide-container.active');
+            return {
+                title: activeSlideElement.getAttribute('data-title') || "Infraestructura AD y KVM",
+                summary: activeSlideElement.getAttribute('data-summary') || ""
+            };
+        }
+
+        // 2. Control de Sidebar de IA
+        const aiSidebar = document.getElementById('aiSidebar');
+        const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+        const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+
+        toggleSidebarBtn.addEventListener('click', () => {
+            aiSidebar.classList.toggle('collapsed');
+        });
+
+        closeSidebarBtn.addEventListener('click', () => {
+            aiSidebar.classList.add('collapsed');
+        });
+
+        // 3. INTEGRACIÓN DE LA API DE GEMINI (CON BACKOFF EXPONENCIAL)
+        const apiKey = ""; 
+
+        function showErrorToast(msg) {
+            const toast = document.getElementById('errorToast');
+            document.getElementById('errorMessage').textContent = msg;
+            toast.style.display = 'flex';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 6000);
+        }
+
+        const terminalOutput = document.getElementById('terminalOutput');
+        const terminalLoader = document.getElementById('terminalLoader');
+
+        function writeToTerminal(text, clear = false) {
+            if (clear) {
+                terminalOutput.textContent = "";
+            }
+            const textNode = document.createTextNode(text + "\n");
+            terminalOutput.appendChild(textNode);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
+
+        // Llamada unificada al modelo Gemini con Exponential Backoff
+        async function queryGemini(userPrompt, systemInstruction = "") {
+            terminalLoader.style.display = 'flex';
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: userPrompt }] }]
+            };
+
+            if (systemInstruction) {
+                payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+            }
+
+            let delay = 1000;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        terminalLoader.style.display = 'none';
+                        return data.candidates?.[0]?.content?.parts?.[0]?.text || "No se ha recibido respuesta de la IA.";
+                    }
+                } catch (error) {
+                    // Fallo silencioso, continuar reintento
+                }
+
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+            }
+
+            terminalLoader.style.display = 'none';
+            throw new Error("No se pudo conectar al motor de IA de Gemini. Verifica tu conexión de red.");
+        }
+
+        // 4. Botones rápidos
+        const notesBtn = document.getElementById('notesBtn');
+        const tribunalBtn = document.getElementById('tribunalBtn');
+
+        notesBtn.addEventListener('click', async () => {
+            const slide = getActiveSlideData();
+            writeToTerminal(`\n>>> Solicitando Notas del Ponente para la diapositiva: "${slide.title}"...`);
+            
+            const systemPrompt = "Eres un instructor experto en administración de sistemas Linux, Samba Active Directory y virtualización con KVM. Tu tarea es proporcionar notas clave rápidas de oratoria (máximo de 3 puntos clave muy directos) para ayudar al ponente 'lobato18' a explicar esta diapositiva durante su defensa final de ciclo en el año 2026. Hazlo en un tono profesional, técnico pero claro.";
+            const userPrompt = `Diapositiva Actual: "${slide.title}"\nResumen/Contenido clave de la diapositiva: "${slide.summary}"\nGenera los 3 puntos clave en formato de consola.`;
+
+            try {
+                const response = await queryGemini(userPrompt, systemPrompt);
+                writeToTerminal(`\n=== NOTAS PARA EL PONENTE (DIAPOSITIVA: ${slide.title.toUpperCase()}) ===\n${response}`);
+            } catch (err) {
+                showErrorToast(err.message);
+                writeToTerminal(`\n[ERROR]: ${err.message}`);
+            }
+        });
+
+        tribunalBtn.addEventListener('click', async () => {
+            const slide = getActiveSlideData();
+            writeToTerminal(`\n>>> Formulando pregunta de tribunal técnico sobre: "${slide.title}"...`);
+
+            const systemPrompt = "Eres un profesor de tribunal examinador severo y muy meticuloso de administración de redes. Formula una única pregunta técnica de examen desafiante, realista y directa relacionada con el contenido de la diapositiva del alumno para poner a prueba su dominio de la infraestructura (Samba AD, KVM, VNC, redes bridge, etc.).";
+            const userPrompt = `Diapositiva Actual: "${slide.title}"\nContenido: "${slide.summary}"\nGenera la pregunta de defensa.`;
+
+            try {
+                const response = await queryGemini(userPrompt, systemPrompt);
+                writeToTerminal(`\n=== PREGUNTA DE TRIBUNAL (ENSAYO DE DEFENSA) ===\n${response}`);
+            } catch (err) {
+                showErrorToast(err.message);
+                writeToTerminal(`\n[ERROR]: ${err.message}`);
+            }
+        });
+
+        // 5. Entrada de Chat
+        const aiInput = document.getElementById('aiInput');
+        const sendAiQueryBtn = document.getElementById('sendAiQueryBtn');
+
+        async function handleCustomQuery() {
+            const query = aiInput.value.trim();
+            if (!query) return;
+
+            writeToTerminal(`\n$ ${query}`);
+            aiInput.value = "";
+
+            const slide = getActiveSlideData();
+            const systemPrompt = "Eres el asistente inteligente de red del servidor de lobato18. El proyecto cuenta con un Host Ubuntu Server con KVM/QEMU, Bridge Netplan, Samba 4 Active Directory y conexiones de visualización VNC. Responde dudas técnicas, asiste con comandos de consola reales de Linux y ayuda a resolver incidencias asociadas. Mantén la respuesta con formato de bloque de código o consola de comandos si es oportuno.";
+            const userPrompt = `Contexto del Proyecto:\n- Host: Ubuntu Server\n- Core: Samba AD DC y KVM Virtualization\n- Conexiones de invitado: VNC\n- Diapositiva en la que se encuentra el usuario: "${slide.title}" (Contenido: ${slide.summary})\n\nPregunta del administrador: ${query}`;
+
+            try {
+                const response = await queryGemini(userPrompt, systemPrompt);
+                writeToTerminal(`\n${response}`);
+            } catch (err) {
+                showErrorToast(err.message);
+                writeToTerminal(`\n[ERROR]: ${err.message}`);
+            }
+        }
+
+        sendAiQueryBtn.addEventListener('click', handleCustomQuery);
+        aiInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleCustomQuery();
+            }
+        });
+
+        // Inicializar
+        updateSlides();
+    </script>
+</body>
+</html>
