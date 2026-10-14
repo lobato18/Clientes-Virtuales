@@ -188,28 +188,31 @@ bridge_manual() {
     local br="$1" phys="$2"
     local ip_cidr gw mac
     ip_cidr="$(ip -4 -o addr show "$phys" 2>/dev/null | awk '{print $4; exit}')"
-    gw="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+    # Solo la ruta por defecto DE ESTA interfaz (no la global del host).
+    gw="$(ip -4 route show default dev "$phys" 2>/dev/null | awk '{print $3; exit}')"
     mac="$(cat "/sys/class/net/$phys/address" 2>/dev/null || true)"
 
     log_info "Creando bridge '$br' manualmente sobre '$phys'..."
-    ip link add name "$br" type bridge || die "No se pudo crear el bridge."
+    if ! ip link show "$br" >/dev/null 2>&1; then
+        ip link add name "$br" type bridge || die "No se pudo crear el bridge."
+    fi
     ip link set "$br" up
     if [[ -n "$mac" ]]; then
         ip link set "$br" address "$mac"
     fi
     ip link set "$phys" up
-    ip link set "$phys" master "$br" || {
-        ip link del "$br" 2>/dev/null || true
-        die "No se pudo esclavizar '$phys'."
-    }
+    if ! ip link show "$phys" | grep -q "master $br"; then
+        ip link set "$phys" master "$br" || die "No se pudo esclavizar '$phys'."
+    fi
 
     # Conserva la IP y la ruta por defecto en el bridge.
     if [[ -n "$ip_cidr" ]]; then
         ip addr flush dev "$phys"
         ip addr add "$ip_cidr" dev "$br"
-    fi
-    if [[ -n "$gw" ]]; then
-        ip route replace default via "$gw" dev "$br"
+        # La ruta solo se mueve si había IP y gateway propios de la interfaz.
+        if [[ -n "$gw" ]]; then
+            ip route replace default via "$gw" dev "$br"
+        fi
     fi
 
     if ! verify_connectivity "$gw"; then
@@ -221,7 +224,7 @@ bridge_manual() {
 
 _bridge_rollback_manual() {
     local br="$1" phys="$2" ip_cidr="$3" gw="$4"
-    ip route del default 2>/dev/null || true
+    ip route del default dev "$br" 2>/dev/null || true
     ip addr flush dev "$br" 2>/dev/null || true
     ip link set "$phys" nomaster 2>/dev/null || true
     ip link del "$br" 2>/dev/null || true

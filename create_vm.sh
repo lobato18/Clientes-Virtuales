@@ -20,6 +20,10 @@ read -r -p "Introduce el nombre de la VM: " VM_NAME
 read -r -p "Introduce la ruta de la ISO: " ISO_PATH
 [[ -f "$ISO_PATH" ]] || die "No existe el archivo ISO: $ISO_PATH"
 
+if command_exists virsh && virsh dominfo "$VM_NAME" >/dev/null 2>&1; then
+    die "Ya existe una VM llamada '$VM_NAME'."
+fi
+
 # 1. Bridge idempotente (no rompe la red si ya existe).
 ensure_bridge "${BRIDGE_IFACE}" "${PHYS_IFACE}"
 

@@ -29,19 +29,26 @@ if virsh dominfo "$NEW_VM_NAME" >/dev/null 2>&1; then
     die "Ya existe una VM llamada '$NEW_VM_NAME'."
 fi
 
-# Pausa la plantilla para obtener una copia consistente.
+# virt-clone exige que la máquina original esté APAGADA. Si está encendida,
+# se apaga (recuerda su estado para reiniciarla al terminar).
 ESTADO="$(virsh domstate "$TEMPLATE_NAME")"
+WAS_RUNNING=0
 if [[ "$ESTADO" == "running" ]]; then
-    log_info "Pausando la plantilla para clonar de forma consistente..."
-    virsh suspend "$TEMPLATE_NAME"
-fi
+    WAS_RUNNING=1
+    log_warn "La plantilla '$TEMPLATE_NAME' está encendida; virt-clone requiere que esté apagada."
+    confirm "¿Apagarla ahora para clonar?" || die "Apaga la plantilla manualmente e inténtalo de nuevo."
 
-cleanup() {
-    if [[ "$ESTADO" == "running" ]]; then
-        virsh resume "$TEMPLATE_NAME" 2>/dev/null || true
+    virsh shutdown "$TEMPLATE_NAME" >/dev/null 2>&1 || true
+    for _ in {1..30}; do
+        [[ "$(virsh domstate "$TEMPLATE_NAME" 2>/dev/null)" == "running" ]] || break
+        sleep 1
+    done
+    if [[ "$(virsh domstate "$TEMPLATE_NAME" 2>/dev/null)" == "running" ]]; then
+        log_warn "No se apagó por ACPI (tiempo agotado)."
+        confirm "¿Forzar apagado (destroy)?" || die "Cancelado."
+        virsh destroy "$TEMPLATE_NAME"
     fi
-}
-trap cleanup EXIT
+fi
 
 log_info "Clonando '$TEMPLATE_NAME' en '$NEW_VM_NAME'..."
 virt-clone \
@@ -51,6 +58,11 @@ virt-clone \
 
 log_info "Iniciando '$NEW_VM_NAME'..."
 virsh start "$NEW_VM_NAME"
+
+if [[ "$WAS_RUNNING" == "1" ]]; then
+    virsh start "$TEMPLATE_NAME" >/dev/null 2>&1 || true
+    log_info "Plantilla '$TEMPLATE_NAME' reiniciada."
+fi
 
 show_vnc_info "$NEW_VM_NAME"
 cat <<EOF
