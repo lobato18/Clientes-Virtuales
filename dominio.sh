@@ -29,11 +29,12 @@ fi
 IP_SERV="$(iface_ip "$IFACE_NAME")"
 [[ -n "$IP_SERV" ]] || die "La interfaz '$IFACE_NAME' no existe o no tiene IP asignada."
 
-# Si es un bridge, limpiamos IPs residuales en su interfaz física.
+# Si es un bridge, limpiamos IPs residuales SOLO si la interfaz física aún
+# tiene una IP (si el bridge está bien montado, no debería tener ninguna).
 if [[ -d "/sys/class/net/$IFACE_NAME/bridge" ]]; then
     PHYS="$(ip link show | grep "master $IFACE_NAME" | awk -F': ' '{print $2}' | head -n1)"
-    if [[ -n "$PHYS" ]]; then
-        log_info "Limpiando IPs residuales en interfaz física: $PHYS"
+    if [[ -n "$PHYS" && -n "$(iface_ip "$PHYS")" ]]; then
+        log_warn "La interfaz física '$PHYS' tiene IP ($(iface_ip "$PHYS")); la libero (el bridge ya la tiene)."
         ip addr flush dev "$PHYS"
     fi
 fi

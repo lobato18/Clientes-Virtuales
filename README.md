@@ -33,7 +33,8 @@ sudo ADMIN_PASS='OtraClave!' REALM=MIEMPRESA.LOCAL ./dominio.sh
 ```
 
 Variables principales: `REALM`, `DOMAIN`, `ADMIN_PASS`, `DNS_FORWARDER`,
-`BRIDGE_IFACE`, `STORAGE_DIR`, `VM_RAM`, `VM_VCPUS`, `VM_DISK_GB`, `SERVER_IP`.
+`BRIDGE_IFACE`, `BRIDGE_BACKEND`, `VERIFY_CONNECTIVITY`, `STORAGE_DIR`, `VM_RAM`,
+`VM_VCPUS`, `VM_DISK_GB`, `SERVER_IP`.
 
 > ⚠️ **Seguridad:** cambia `ADMIN_PASS` antes de usar en producción. No la dejes
 > en texto plano en un repositorio compartido.
@@ -69,9 +70,17 @@ sudo ./gestion_usuarios.sh
 
 ## 🖥️ 2. Automatización de virtualización
 
-La creación del bridge es **idempotente** (`ensure_bridge` en `lib.sh`): si `br0`
-ya existe lo reutiliza y solo esclaviza la interfaz física si hace falta, evitando
-dejar el host sin red.
+La creación del bridge es **segura e idempotente** (`ensure_bridge` en `lib.sh`):
+
+- Si `br0` ya existe y tiene IP, se reutiliza sin tocar nada.
+- En sistemas con **NetworkManager** lo crea vía `nmcli` (persistente, sin pelear
+  con NM ni perder la conexión); si no, usa configuración manual conservando la
+  IP/MAC y la ruta por defecto.
+- **Verifica la conectividad** después del cambio y **revierte automáticamente**
+  si algo falla, dejando la red como estaba.
+- Avisa y pide confirmación si detecta una **sesión SSH** (para no cortarte).
+- Backend configurable con `BRIDGE_BACKEND=auto|nmcli|manual` y verificación con
+  `VERIFY_CONNECTIVITY=1|0`. Modo desatendido con `ASSUME_YES=1`.
 
 | Script             | Uso                                                        |
 |--------------------|------------------------------------------------------------|
@@ -101,8 +110,9 @@ sudo samba-tool ou delete "OU=Alumnos,${BASE_DN}"
 
 ## 🔧 Resolución de problemas
 
-- **Sin red tras crear el bridge:** vuelve a ejecutar `ensure_bridge` (vía
-  `dominio.sh`) o asigna IP manualmente al bridge.
+- **Sin red tras crear el bridge:** ya no debería ocurrir: `ensure_bridge`
+  verifica la conectividad y revierte si falla. Si necesitas forzar el backend,
+  usa `BRIDGE_BACKEND=nmcli` (o `manual`) y revisa `nmcli connection show`.
 - **`samba-tool` no encontrado:** ejecuta primero `dominio.sh`.
 - **VNC rechazado:** verifica que la VM esté arrancada (`virsh list`) y usa el
   puerto que muestra el script.

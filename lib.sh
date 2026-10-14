@@ -34,6 +34,8 @@ require_root() {
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 confirm() {
+    # ASSUME_YES=1 fuerza la respuesta afirmativa (modo desatendido).
+    [[ "${ASSUME_YES:-0}" == "1" ]] && return 0
     local reply
     read -r -p "${1:-¿Continuar?} [s/N]: " reply
     [[ "$reply" =~ ^[SsYy]$ ]]
@@ -65,49 +67,154 @@ detect_server_ip() {
     echo "${ip:-127.0.0.1}"
 }
 
-# Crea un bridge de forma idempotente y esclaviza la interfaz física.
+# ¿Está NetworkManager en ejecución?
+nm_running() {
+    command_exists nmcli && \
+        [[ "$(nmcli -t -f RUNNING general status 2>/dev/null)" == "running" ]]
+}
+
+# Comprueba que hay conectividad tras el cambio.
+# Uso: verify_connectivity <ip_objetivo>
+verify_connectivity() {
+    local target="${1:-}"
+    [[ "${VERIFY_CONNECTIVITY:-1}" == "1" ]] || return 0
+    [[ -n "$target" ]] || target="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+    [[ -n "$target" ]] || target="1.1.1.1"
+    command_exists ping || return 0
+    ping -c1 -W3 "$target" >/dev/null 2>&1
+}
+
+# Crea el bridge de forma SEGURA e idempotente.
+#   - Reutiliza el bridge si ya existe y tiene IP.
+#   - Avisa y pide confirmación si se ejecuta por SSH.
+#   - Usa NetworkManager (persistente) o, si no, config manual con rollback.
 # Uso: ensure_bridge [bridge] [iface_fisica]
 ensure_bridge() {
     local br="${1:-${BRIDGE_IFACE:-br0}}"
     local phys="${2:-${PHYS_IFACE:-}}"
 
-    if [[ -z "$phys" ]]; then
-        phys="$(detect_phys_iface)"
-    fi
+    [[ -n "$phys" ]] || phys="$(detect_phys_iface)"
     [[ -n "$phys" ]] || die "No se pudo detectar la interfaz física de red."
+    [[ "$phys" != "$br" ]] || die "La interfaz física y el bridge no pueden ser la misma ('$br')."
 
-    if [[ "$phys" == "$br" ]]; then
-        die "La interfaz física y el bridge no pueden ser la misma ('$br')."
+    # Idempotencia: si ya está montado y operativo, no tocamos nada.
+    if ip link show "$br" >/dev/null 2>&1 && [[ -n "$(iface_ip "$br")" ]]; then
+        log_info "El bridge '$br' ya existe y tiene IP ($(iface_ip "$br")); reutilizándolo."
+        return 0
     fi
 
-    if ! ip link show "$br" >/dev/null 2>&1; then
-        log_info "Creando bridge '$br' sobre '$phys'..."
-        ip link add name "$br" type bridge || die "No se pudo crear el bridge."
-    else
-        log_info "El bridge '$br' ya existe; reutilizándolo."
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+        log_warn "Sesión SSH detectada: reconfigurar la red podría cortar tu conexión."
+        confirm "¿Continuar igualmente?" || die "Cancelado por el usuario."
     fi
 
+    local backend="${BRIDGE_BACKEND:-auto}"
+    if [[ "$backend" == "auto" ]]; then
+        if nm_running; then backend="nmcli"; else backend="manual"; fi
+    fi
+
+    case "$backend" in
+        nmcli)  bridge_via_nmcli "$br" "$phys" ;;
+        manual) bridge_manual    "$br" "$phys" ;;
+        *)      die "BRIDGE_BACKEND inválido: '$backend' (usa auto|nmcli|manual)." ;;
+    esac
+
+    log_ok "Bridge '$br' listo (IP: $(iface_ip "$br"))."
+}
+
+# --- Backend NetworkManager (persistente, no pelea con NM) -----
+bridge_via_nmcli() {
+    local br="$1" phys="$2"
+    local port="${br}-port"
+    local orig_conn
+    orig_conn="$(nmcli -t -g GENERAL.CONNECTION device show "$phys" 2>/dev/null | head -n1)"
+    [[ "$orig_conn" == "--" ]] && orig_conn=""
+
+    log_info "Creando bridge '$br' con NetworkManager sobre '$phys'..."
+
+    # Evita duplicados si quedaron conexiones de un intento previo.
+    nmcli connection delete "$br" "$port" >/dev/null 2>&1 || true
+
+    # 1. El puerto (interfaz física esclavizada al bridge).
+    #    Un puerto esclavo no lleva configuración IP propia.
+    if ! nmcli connection add type ethernet ifname "$phys" con-name "$port" \
+            master "$br" slave-type bridge \
+            connection.autoconnect yes >/dev/null; then
+        die "No se pudo crear el puerto '$port'."
+    fi
+
+    # 2. El bridge (DHCP; hereda la MAC del puerto, así conserva la IP).
+    if ! nmcli connection add type bridge ifname "$br" con-name "$br" \
+            ipv4.method auto ipv6.method ignore \
+            bridge.stp no connection.autoconnect yes >/dev/null; then
+        nmcli connection delete "$port" >/dev/null 2>&1 || true
+        die "No se pudo crear el bridge '$br'."
+    fi
+
+    # 3. Activar y verificar; si falla, revertir a la conexión original.
+    log_info "Activando '$br'..."
+    if ! nmcli connection up "$br" >/dev/null 2>&1; then
+        _bridge_rollback_nm "$br" "$port" "$orig_conn"
+        die "No se pudo activar '$br'. Configuración de red restaurada."
+    fi
+
+    if ! verify_connectivity; then
+        log_warn "Sin conectividad tras crear '$br'."
+        _bridge_rollback_nm "$br" "$port" "$orig_conn"
+        die "Revertido: la red quedó como estaba."
+    fi
+}
+
+_bridge_rollback_nm() {
+    local br="$1" port="$2" orig_conn="$3"
+    log_warn "Revirtiendo el bridge con NetworkManager..."
+    nmcli connection down "$br" >/dev/null 2>&1 || true
+    nmcli connection delete "$br" "$port" >/dev/null 2>&1 || true
+    if [[ -n "$orig_conn" ]]; then
+        nmcli connection up "$orig_conn" >/dev/null 2>&1 || true
+    fi
+}
+
+# --- Backend manual (con conservación de IP/MAC y rollback) ----
+bridge_manual() {
+    local br="$1" phys="$2"
+    local ip_cidr gw mac
+    ip_cidr="$(ip -4 -o addr show "$phys" 2>/dev/null | awk '{print $4; exit}')"
+    gw="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+    mac="$(cat "/sys/class/net/$phys/address" 2>/dev/null)"
+
+    log_info "Creando bridge '$br' manualmente sobre '$phys'..."
+    ip link add name "$br" type bridge || die "No se pudo crear el bridge."
     ip link set "$br" up
+    [[ -n "$mac" ]] && ip link set "$br" address "$mac"
     ip link set "$phys" up
+    ip link set "$phys" master "$br" || {
+        ip link del "$br" 2>/dev/null || true
+        die "No se pudo esclavizar '$phys'."
+    }
 
-    if ! ip link show "$phys" | grep -q "master $br"; then
-        ip link set "$phys" master "$br" || die "No se pudo esclavizar '$phys'."
-    else
-        log_info "'$phys' ya está esclavizada a '$br'."
+    # Conserva la IP y la ruta por defecto en el bridge.
+    if [[ -n "$ip_cidr" ]]; then
+        ip addr flush dev "$phys"
+        ip addr add "$ip_cidr" dev "$br"
     fi
+    [[ -n "$gw" ]] && ip route replace default via "$gw" dev "$br"
 
-    # Si el bridge no tiene IP, la hereda de la interfaz física/DHCP.
-    if [[ -z "$(iface_ip "$br")" ]]; then
-        log_info "Solicitando IP para '$br' vía DHCP..."
-        if command_exists dhclient; then
-            dhclient -r "$phys" 2>/dev/null || true
-            dhclient "$br" || log_warn "dhclient no asignó IP; configura una IP estática."
-        else
-            log_warn "dhclient no está instalado; asigna una IP a '$br' manualmente."
-        fi
+    if ! verify_connectivity "$gw"; then
+        log_warn "Sin conectividad; revirtiendo cambios de red..."
+        _bridge_rollback_manual "$br" "$phys" "$ip_cidr" "$gw"
+        die "Revertido: la red quedó como estaba."
     fi
+}
 
-    log_ok "Bridge '$br' listo (IP: $(iface_ip "$br"))"
+_bridge_rollback_manual() {
+    local br="$1" phys="$2" ip_cidr="$3" gw="$4"
+    ip route del default 2>/dev/null || true
+    ip addr flush dev "$br" 2>/dev/null || true
+    ip link set "$phys" nomaster 2>/dev/null || true
+    ip link del "$br" 2>/dev/null || true
+    [[ -n "$ip_cidr" ]] && ip addr add "$ip_cidr" dev "$phys"
+    [[ -n "$gw" ]] && ip route replace default via "$gw" dev "$phys"
 }
 
 # Dado el nombre de una VM, imprime el puerto VNC TCP (ej: 5901).

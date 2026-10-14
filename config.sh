@@ -17,6 +17,11 @@ export DNS_FORWARDER="${DNS_FORWARDER:-8.8.8.8}"
 export STORAGE_DIR="${STORAGE_DIR:-/var/lib/libvirt/images}"
 export BRIDGE_IFACE="${BRIDGE_IFACE:-br0}"
 export PHYS_IFACE="${PHYS_IFACE:-}"
+
+# Backend para crear el bridge: auto (recomendado), nmcli o manual.
+export BRIDGE_BACKEND="${BRIDGE_BACKEND:-auto}"
+# Verificar conectividad tras crear el bridge y revertir si falla (1/0).
+export VERIFY_CONNECTIVITY="${VERIFY_CONNECTIVITY:-1}"
 export OS_VARIANT="${OS_VARIANT:-win10}"
 export VM_RAM="${VM_RAM:-4096}"
 export VM_VCPUS="${VM_VCPUS:-2}"
