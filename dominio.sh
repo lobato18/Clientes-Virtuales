@@ -19,7 +19,11 @@ IFACE_NAME="${1:-${BRIDGE_IFACE:-}}"
 
 if [[ -z "$IFACE_NAME" ]]; then
     log_info "Interfaces disponibles:"
-    mapfile -t INTERFACES < <(ls /sys/class/net | grep -v '^lo$')
+    INTERFACES=()
+    for _if in /sys/class/net/*; do
+        _name="$(basename "$_if")"
+        [[ "$_name" == "lo" ]] || INTERFACES+=("$_name")
+    done
     select IFACE_NAME in "${INTERFACES[@]}"; do
         if [[ -n "$IFACE_NAME" ]]; then
             break

@@ -11,6 +11,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 # --- Colores (solo si la salida es un terminal) --------------
+# Varias de estas variables se usan en los scripts que cargan la librería.
+# shellcheck disable=SC2034
 if [[ -t 1 ]]; then
     C_RESET='\033[0m'; C_RED='\033[0;31m'; C_GREEN='\033[0;32m'
     C_YELLOW='\033[0;33m'; C_BLUE='\033[0;34m'; C_BOLD='\033[1m'
@@ -247,8 +249,8 @@ vnc_tcp_port() {
 
 # Espera a que libvirt conozca el puerto VNC de la VM (hasta 10s).
 wait_for_vnc() {
-    local vm="$1" port="" i
-    for i in {1..10}; do
+    local vm="$1" port=""
+    for _ in {1..10}; do
         port="$(vnc_tcp_port "$vm")"
         if [[ -n "$port" ]]; then
             echo "$port"

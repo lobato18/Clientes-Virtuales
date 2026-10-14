@@ -20,13 +20,16 @@ if [[ -z "$ISO_PATH" || -z "$OS_NAME" ]]; then
     exit 1
 fi
 [[ -f "$ISO_PATH" ]] || die "No existe la ISO: $ISO_PATH"
-command_exists tftp >/dev/null 2>&1 || true
 
 MOUNT_POINT="/mnt/iso_tmp"
 TARGET_DIR="${TFTP_DIR}/${OS_NAME}"
 mkdir -p "$MOUNT_POINT" "$TARGET_DIR"
 
-cleanup() { mountpoint -q "$MOUNT_POINT" && umount "$MOUNT_POINT" || true; }
+cleanup() {
+    if mountpoint -q "$MOUNT_POINT"; then
+        umount "$MOUNT_POINT"
+    fi
+}
 trap cleanup EXIT
 
 log_info "Montando la ISO..."

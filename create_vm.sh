@@ -24,12 +24,15 @@ read -r -p "Introduce la ruta de la ISO: " ISO_PATH
 ensure_bridge "${BRIDGE_IFACE}" "${PHYS_IFACE}"
 
 # 2. Crear la VM conectada al bridge.
+DISK_PATH="${STORAGE_DIR}/${VM_NAME}.qcow2"
+DISK_SPEC="path=${DISK_PATH},size=${VM_DISK_GB},format=qcow2"
+
 log_info "Creando la VM '$VM_NAME'..."
 virt-install \
     --name "$VM_NAME" \
     --ram "$VM_RAM" \
     --vcpus "$VM_VCPUS" \
-    --disk path="${STORAGE_DIR}/${VM_NAME}.qcow2",size="${VM_DISK_GB}",format=qcow2 \
+    --disk "$DISK_SPEC" \
     --os-variant "$OS_VARIANT" \
     --network bridge="${BRIDGE_IFACE}",model=e1000e \
     --graphics vnc,listen=0.0.0.0,port=-1 \
