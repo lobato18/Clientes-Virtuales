@@ -1,48 +1,54 @@
-# Guía de Automatización: Implementación de Infraestructura VNC
+# Guía de Implementación: Infraestructura Samba AD + KVM
 
-Este repositorio contiene los scripts necesarios para desplegar una infraestructura de máquinas virtuales de forma automatizada y corregir errores comunes de red.
+Scripts para desplegar máquinas virtuales y un controlador de dominio Samba de
+forma automatizada, corrigiendo errores comunes de red.
 
-## 📋 Requisitos Previos
-* Acceso con permisos de administrador/root.
-* Conexión a internet (para la descarga inicial de paquetes).
-* Configuración de variables de entorno (si aplica).
-
----
-
-## 🚀 Orden de Ejecución
-
-Para un despliegue exitoso, los scripts **deben** ejecutarse en el siguiente orden secuencial:
-
-### 1. Configuración de Dominio (`01_dominio.sh`)
-Establece las bases de la red, nombres de host y la unión o creación del controlador de dominio.
-* **Propósito:** Asegurar que la resolución de nombres (DNS) y la identidad de red sean correctas antes de crear máquinas.
-* **Ejecución:** `sudo ./01_dominio.sh`
-
-### 2. Creación de VM Maestra (`02_crear_vm.sh`)
-Genera la máquina virtual base o "Template".
-* **Propósito:** Instalar el sistema operativo base, las herramientas de VNC y las actualizaciones necesarias.
-* **Nota:** Asegúrese de apagar la máquina antes de proceder al siguiente paso.
-* **Ejecución:** `sudo ./02_crear_vm.sh`
-
-### 3. Clonación Masiva (`03_clonacion.sh`)
-Despliega las instancias finales a partir de la VM maestra creada en el paso anterior.
-* **Propósito:** Escalar la infraestructura de forma rápida.
-* **Resultado:** Múltiples máquinas listas para conexión VNC.
-* **Ejecución:** `sudo ./03_clonacion.sh`
+## 📋 Requisitos previos
+* Ubuntu Server con permisos de administrador (`sudo`).
+* Conexión a internet (descarga de paquetes).
+* Paquetes de virtualización: `libvirt-daemon-system`, `virtinst`, `qemu-kvm`.
+* Revisa y ajusta `config.sh` (dominio, contraseña, interfaces, rutas).
 
 ---
 
-## 🛠️ Resolución de Problemas (Troubleshooting)
+## 🚀 Orden de ejecución
 
-### Si la red falla o se "rompe":
-Es común que tras una clonación o un reinicio inesperado, las interfaces de red pierdan su configuración o existan conflictos de IP/MAC.
+Ejecuta los scripts **en este orden**:
 
-**Script de Arreglo (`04_arreglo_red.sh`):**
-Ejecute este script si nota que las máquinas no tienen ping, no se ven entre sí o el acceso VNC es rechazado.
-* **Qué hace:** Reinicia el stack de red, limpia las reglas de udev (si aplica) y renueva el contrato DHCP/IP Estática.
-* **Ejecución:** `sudo ./04_arreglo_red.sh`
+### 1. Configuración del dominio — `dominio.sh`
+Establece la red, el hostname y provisiona el Samba AD DC.
+* **Propósito:** asegurar DNS e identidad de red antes de crear máquinas.
+* **Ejecución:** `sudo ./dominio.sh br0`
+
+### 2. Creación de la VM maestra — `create_vm.sh` (o `crear_cliente.sh`)
+Genera la máquina base o «template».
+* **Propósito:** instalar el SO base y las herramientas necesarias.
+* **Nota:** apaga la máquina antes de clonarla.
+* **Ejecución:** `sudo ./create_vm.sh`
+
+### 3. Clonación — `clonar.sh`
+Despliega instancias finales a partir de la VM maestra.
+* **Ejecución:** `sudo ./clonar.sh <plantilla> <nueva>`
+
+### 4. Gestión de usuarios — `crear_usuarios.sh` / `gestion_usuarios.sh`
+Crea OUs y usuarios en el dominio.
+* **Ejecución:** `sudo ./crear_usuarios.sh`  ·  `sudo ./gestion_usuarios.sh`
+
+---
+
+## 🛠️ Resolución de problemas
+
+### Si la red falla o se «rompe»
+Tras una clonación o un reinicio, las interfaces pueden perder su configuración o
+entrar en conflicto de IP/MAC.
+
+* **Qué hacer:** vuelve a crear el bridge de forma segura con `dominio.sh` (la
+  función `ensure_bridge` es idempotente) o asigna IP manualmente a `br0`.
+* **Diagnóstico:** `ip -br addr`, `virsh list --all`, `journalctl -u samba-ad-dc`.
 
 ---
 
 ## 🛡️ Seguridad y VNC
-Recuerda que los accesos directos creados para VNC dependen de que la IP asignada en el paso 3 o 4 sea persistente. Se recomienda el uso de **Reservas DHCP** para evitar cambios de IP que rompan los accesos directos del escritorio.
+Los accesos VNC dependen de que la IP asignada sea persistente. Usa **reservas
+DHCP** o una IP estática para el host y define `SERVER_IP` en `config.sh`.
+No dejes `ADMIN_PASS` por defecto en entornos reales.

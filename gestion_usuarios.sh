@@ -1,51 +1,52 @@
 #!/bin/bash
+# =============================================================
+#  gestion_usuarios.sh - Crea una OU (si hace falta) y un usuario
+#  Uso:  sudo ./gestion_usuarios.sh
+# =============================================================
+set -euo pipefail
 
-# --- CONFIGURACIÓN BÁSICA ---
-DOMAIN_DN="DC=tecnolobato,DC=local"
-ADMIN_PASS='TecnoLobato2026!'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-echo "============================================================"
-echo "   GESTOR DE USUARIOS Y UNIDADES ORGANIZATIVAS (SAMBA AD)   "
-echo "============================================================"
+require_root
+command_exists samba-tool || die "samba-tool no está disponible. ¿Ejecutaste dominio.sh?"
 
-# 1. GESTIÓN DE LA UNIDAD ORGANIZATIVA (OU)
-read -p "Nombre de la Unidad Organizativa (ej: Ventas): " OU_NAME
-OU_DN="OU=$OU_NAME,$DOMAIN_DN"
+printf "%s\n" "============================================================"
+printf "%s\n" "   GESTOR DE USUARIOS Y UNIDADES ORGANIZATIVAS (SAMBA AD)   "
+printf "%s\n" "============================================================"
 
-# Comprobar si la OU ya existe
-samba-tool ou list | grep -i "OU=$OU_NAME" > /dev/null
+read -r -p "Nombre de la Unidad Organizativa (ej: Ventas): " OU_NAME
+[[ -n "$OU_NAME" ]] || die "El nombre de la OU no puede estar vacío."
+OU_DN="OU=${OU_NAME},${BASE_DN}"
 
-if [ $? -eq 0 ]; then
-    echo "⚠️  La OU '$OU_NAME' ya existe."
-    read -p "¿Deseas unir al nuevo usuario a esta OU existente? (s/n): " JOIN_OU
-    if [[ ! $JOIN_OU =~ ^[Ss]$ ]]; then
-        echo "❌ Operación cancelada por el usuario."
-        exit 1
+if samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+    log_warn "La OU '$OU_NAME' ya existe."
+    if ! confirm "¿Unir al nuevo usuario a esta OU existente?"; then
+        die "Operación cancelada por el usuario."
     fi
 else
-    echo "🔨 Creando nueva Unidad Organizativa: $OU_NAME..."
+    log_info "Creando nueva Unidad Organizativa: $OU_NAME..."
     samba-tool ou create "$OU_DN"
-    echo "✅ OU creada con éxito."
+    log_ok "OU creada con éxito."
 fi
 
 echo "------------------------------------------------------------"
 
-# 2. GESTIÓN DEL USUARIO
-read -p "Nombre del nuevo usuario (login): " USER_NAME
-read -s -p "Contraseña para $USER_NAME: " USER_PASS
+read -r -p "Nombre del nuevo usuario (login): " USER_NAME
+[[ -n "$USER_NAME" ]] || die "El nombre de usuario no puede estar vacío."
+read -r -s -p "Contraseña para $USER_NAME: " USER_PASS
 echo ""
 
-# Crear el usuario dentro de la OU seleccionada
-echo "👤 Creando usuario '$USER_NAME' en '$OU_DN'..."
-
-samba-tool user add "$USER_NAME" "$USER_PASS" --userou="OU=$OU_NAME"
-
-if [ $? -eq 0 ]; then
+log_info "Creando usuario '$USER_NAME' en '$OU_DN'..."
+if samba-tool user create "$USER_NAME" "$USER_PASS" --userou="OU=${OU_NAME}"; then
     echo "------------------------------------------------------------"
-    echo "🚀 ¡ÉXITO TOTAL!"
-    echo "Usuario: $USER_NAME"
-    echo "Ubicación: $OU_DN"
+    log_ok "¡ÉXITO TOTAL!"
+    echo "   Usuario:   $USER_NAME"
+    echo "   Ubicación: $OU_DN"
     echo "------------------------------------------------------------"
 else
-    echo "❌ Error al crear el usuario. Revisa que el nombre no esté duplicado."
+    die "Error al crear el usuario. Revisa que el nombre no esté duplicado."
 fi

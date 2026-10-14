@@ -1,34 +1,40 @@
-#!/bin/bash 
-
 #!/bin/bash
+# =============================================================
+#  create_vm.sh - Crea el bridge y una VM desde una ISO
+#  Uso:  sudo ./create_vm.sh
+# =============================================================
+set -euo pipefail
 
-read -p "Introduce el nombre de la VM: " VM_NAME
-read -p "Introduce la ruta de la ISO: " ISO_PATH
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# 1. Crear el puente y activarlo
-sudo ip link add name br0 type bridge
-sudo ip link set dev br0 up
+require_root
+command_exists virt-install || die "virt-install no está instalado (paquete virtinst)."
 
-sudo dhclient -r enp1s0 2>/dev/null
-sudo ip addr flush dev enp1s0
+read -r -p "Introduce el nombre de la VM: " VM_NAME
+[[ -n "$VM_NAME" ]] || die "El nombre de la VM no puede estar vacío."
 
-# 2. Esclavizar la interfaz física al puente
-sudo ip link set enp1s0 up
-sudo ip link set dev enp1s0 master br0
+read -r -p "Introduce la ruta de la ISO: " ISO_PATH
+[[ -f "$ISO_PATH" ]] || die "No existe el archivo ISO: $ISO_PATH"
 
-# 3. CRÍTICO: El host ahora debe pedir IP a través del puente
-# Esto evita que tu PC se quede sin internet al ejecutar el script.
-sudo dhclient br0 
+# 1. Bridge idempotente (no rompe la red si ya existe).
+ensure_bridge "${BRIDGE_IFACE}" "${PHYS_IFACE}"
 
-# 4. Crear la VM conectada al bridge
-sudo virt-install \
---name "$VM_NAME" \
---ram 4096 \
---vcpus 2 \
---disk size=30,format=qcow2 \
---os-variant win10 \
---network=default,model=e1000e \
---graphics vnc,listen=0.0.0.0,port=5901 \
---noautoconsole \
---cdrom "$ISO_PATH" \
---boot hd,cdrom
+# 2. Crear la VM conectada al bridge.
+log_info "Creando la VM '$VM_NAME'..."
+virt-install \
+    --name "$VM_NAME" \
+    --ram "$VM_RAM" \
+    --vcpus "$VM_VCPUS" \
+    --disk path="${STORAGE_DIR}/${VM_NAME}.qcow2",size="${VM_DISK_GB}",format=qcow2 \
+    --os-variant "$OS_VARIANT" \
+    --network bridge="${BRIDGE_IFACE}",model=e1000e \
+    --graphics vnc,listen=0.0.0.0,port=-1 \
+    --noautoconsole \
+    --cdrom "$ISO_PATH" \
+    --boot hd,cdrom
+
+show_vnc_info "$VM_NAME"

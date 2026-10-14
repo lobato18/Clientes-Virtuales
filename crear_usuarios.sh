@@ -1,42 +1,42 @@
 #!/bin/bash
-# Configuración de la ruta de la OU de destino
-OU_TARGET="OU=tecnolobato,dc=tecnolobato,dc=local"
+# =============================================================
+#  crear_usuarios.sh - Alta rápida de usuarios en una OU
+#  Uso:  sudo ./crear_usuarios.sh
+# =============================================================
+set -euo pipefail
 
-echo "===================================================="
-echo "    GESTOR DE ALTA DE USUARIOS - TECNOLOBATO         "
-echo "===================================================="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# Solicitar datos de forma interactiva
-read -p "Nombre del nuevo usuario (ej: lobato01): " NEW_USER
-read -s -p "Introduce la contraseña para $NEW_USER: " USER_PASS
-echo "" # Salto de línea estético
+require_root
+command_exists samba-tool || die "samba-tool no está disponible. ¿Ejecutaste dominio.sh?"
 
-echo "Registrando a $NEW_USER en el dominio..."
+OU_NAME="${OU_NAME:-tecnolobato}"
 
-# Comando oficial de Samba para crear el usuario en la OU específica
-samba-tool user create "$NEW_USER" "$USER_PASS" --userou="$OU_TARGET"
+printf "%s\n" "===================================================="
+printf "%s\n" "    GESTOR DE ALTA DE USUARIOS - ${DOMAIN}          "
+printf "%s\n" "===================================================="
 
-# Verificación del resultado del comando anterior
-if [ $? -eq 0 ]; then
-    echo "----------------------------------------------------"
-    echo "✅ ÉXITO: El usuario $NEW_USER ha sido creado."
-    echo "Ubicación: $OU_TARGET"
-    echo "----------------------------------------------------"
-else
-    echo "----------------------------------------------------"
-    echo "❌ ERROR: No se pudo crear el usuario."
-    echo "Revisa si el usuario ya existe o si el servicio AD está activo."
-    echo "----------------------------------------------------"
+read -r -p "Nombre del nuevo usuario (ej: lobato01): " NEW_USER
+[[ -n "$NEW_USER" ]] || die "El nombre de usuario no puede estar vacío."
+
+read -r -s -p "Contraseña para $NEW_USER: " USER_PASS
+echo ""
+
+if ! samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+    log_info "La OU 'OU=${OU_NAME}' no existe; creándola..."
+    samba-tool ou create "OU=${OU_NAME},${BASE_DN}"
 fi
 
-```bash
-
-🛠️ Instrucciones de uso
-
-Para ejecutar este script en tu servidor Linux, sigue estos tres pasos:
-
-Crear el archivo: nano alta_usuarios.sh (y pega el código de arriba).
-
-Dar permisos: chmod +x alta_usuarios.sh.
-
-Ejecutar: sudo ./alta_usuarios.sh.
+log_info "Registrando a '$NEW_USER' en 'OU=${OU_NAME}'..."
+if samba-tool user create "$NEW_USER" "$USER_PASS" --userou="OU=${OU_NAME}"; then
+    echo "----------------------------------------------------"
+    log_ok "El usuario '$NEW_USER' ha sido creado."
+    echo "   Ubicación: OU=${OU_NAME},${BASE_DN}"
+    echo "----------------------------------------------------"
+else
+    die "No se pudo crear el usuario. ¿Ya existe o el AD no está activo?"
+fi

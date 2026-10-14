@@ -1,101 +1,129 @@
-
 #!/bin/bash
+# =============================================================
+#  dominio.sh - Provisiona un Samba AD DC sobre una interfaz dada
+#  Uso:  sudo ./dominio.sh [interfaz]
+#        sudo BRIDGE_IFACE=br0 ./dominio.sh
+# =============================================================
+set -euo pipefail
 
-# --- 1. SELECCIÓN DE INTERFAZ DE RED ---
-echo "--- DETECTANDO INTERFACES DISPONIBLES ---"
-INTERFACES=($(ls /sys/class/net | grep -v lo))
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-echo "Interfaces encontradas:"
-count=1
-for i in "${INTERFACES[@]}"; do
-    echo "$count) $i"
-    ((count++))
-done
+require_root
 
-echo ""
-read -p "Escribe el NOMBRE de la interfaz que quieres usar (ej: br0): " IFACE_NAME
+# --- 1. Selección de interfaz de red -------------------------
+IFACE_NAME="${1:-${BRIDGE_IFACE:-}}"
 
-# Validamos que la interfaz existe y tiene IP
-IP_SERV=$(ip -4 addr show "$IFACE_NAME" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1)
-
-if [ -z "$IP_SERV" ]; then
-    echo "❌ Error: La interfaz '$IFACE_NAME' no es válida o no tiene IP asignada."
-    exit 1
+if [[ -z "$IFACE_NAME" ]]; then
+    log_info "Interfaces disponibles:"
+    mapfile -t INTERFACES < <(ls /sys/class/net | grep -v '^lo$')
+    select IFACE_NAME in "${INTERFACES[@]}"; do
+        [[ -n "$IFACE_NAME" ]] && break
+        log_warn "Selección no válida."
+    done
 fi
 
-# LIMPIEZA CRÍTICA: Si usas br0, la interfaz física (enp1s0) no debe tener la misma IP
-# Buscamos si IFACE_NAME es un bridge y quién es su interfaz física
-if [ -d "/sys/class/net/$IFACE_NAME/bridge" ]; then
-    PHYS_IFACE=$(ip link show | grep "master $IFACE_NAME" | awk -F': ' '{print $2}' | head -n1)
-    if [ ! -z "$PHYS_IFACE" ]; then
-        echo "🧹 Limpiando IPs residuales en interfaz física: $PHYS_IFACE"
-        sudo ip addr flush dev "$PHYS_IFACE"
+IP_SERV="$(iface_ip "$IFACE_NAME")"
+[[ -n "$IP_SERV" ]] || die "La interfaz '$IFACE_NAME' no existe o no tiene IP asignada."
+
+# Si es un bridge, limpiamos IPs residuales en su interfaz física.
+if [[ -d "/sys/class/net/$IFACE_NAME/bridge" ]]; then
+    PHYS="$(ip link show | grep "master $IFACE_NAME" | awk -F': ' '{print $2}' | head -n1)"
+    if [[ -n "$PHYS" ]]; then
+        log_info "Limpiando IPs residuales en interfaz física: $PHYS"
+        ip addr flush dev "$PHYS"
     fi
 fi
+log_ok "Interfaz seleccionada: $IFACE_NAME ($IP_SERV)"
 
-echo "✅ Interfaz seleccionada: $IFACE_NAME con IP: $IP_SERV"
-sleep 1
+# --- 2. Configurar identidad del host ------------------------
+HOSTNAME_SHORT="servidor"
+hostnamectl set-hostname "$HOSTNAME_SHORT"
+if ! grep -q "servidor.$REALM" /etc/hosts; then
+    sed -i "/[[:space:]]servidor\(\.$REALM\)\?$/d" /etc/hosts 2>/dev/null || true
+    printf '127.0.0.1 localhost\n%s %s.%s %s\n' \
+        "$IP_SERV" "$HOSTNAME_SHORT" "$REALM" "$HOSTNAME_SHORT" >> /etc/hosts
+fi
+log_ok "Host configurado como ${HOSTNAME_SHORT}.${REALM}"
 
-# --- 2. VARIABLES DEL DOMINIO ---
-REALM="TECNOLOBATO.LOCAL"
-DOMAIN="TECNOLOBATO"
-ADMIN_PASS='TecnoLobato2026!'
+# --- 3. Instalación de paquetes ------------------------------
+log_info "Instalando Samba AD DC y dependencias..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq samba krb5-config krb5-user smbclient winbind \
+    samba-ad-provision python3-samba acl attr
 
-echo "--- CONFIGURANDO CONTROLADOR DE DOMINIO (SAMBA AD DC) ---"
+# --- 4. Limpieza previa de Samba -----------------------------
+systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null || true
+systemctl disable smbd nmbd winbind 2>/dev/null || true
+if [[ -f /etc/samba/smb.conf ]]; then
+    mv /etc/samba/smb.conf "/etc/samba/smb.conf.bak.$(date +%Y%m%d%H%M%S)"
+fi
+rm -rf /var/lib/samba/private/* /var/cache/samba/*
 
-# 3. Identidad del sistema
-hostnamectl set-hostname servidor
-# Limpiamos el archivo hosts para evitar resoluciones antiguas
-sed -i "/servidor/d" /etc/hosts
-echo "127.0.0.1 localhost" > /etc/hosts
-echo "$IP_SERV servidor.$REALM servidor" >> /etc/hosts
-
-# 4. Instalación de paquetes
-apt update
-DEBIAN_FRONTEND=noninteractive apt install -y samba krb5-config krb5-user smbclient winbind acl attr
-
-# 5. Limpieza previa de Samba
-systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null
-systemctl disable smbd nmbd winbind samba-ad-dc 2>/dev/null
-[ -f /etc/samba/smb.conf ] && mv /etc/samba/smb.conf /etc/samba/smb.conf.bak
-rm -rf /var/lib/samba/private/*
-rm -rf /var/cache/samba/*
-
-# 6. Provisión del Dominio
+# --- 5. Provisión del dominio --------------------------------
+log_info "Provisionando el dominio ${REALM} (${DOMAIN})..."
 samba-tool domain provision \
-  --server-role=dc --use-rfc2307 --dns-backend=SAMBA_INTERNAL \
-  --realm=$REALM --domain=$DOMAIN --adminpass="$ADMIN_PASS" --option="dns forwarder = 8.8.8.8"
+    --server-role=dc \
+    --use-rfc2307 \
+    --dns-backend=SAMBA_INTERNAL \
+    --realm="$REALM" \
+    --domain="$DOMAIN" \
+    --adminpass="$ADMIN_PASS" \
+    --option="dns forwarder = ${DNS_FORWARDER}" \
+    --option="bind interfaces only = yes" \
+    --option="interfaces = lo ${IFACE_NAME}"
 
-# 7. Configuración de Kerberos
+# --- 6. Kerberos ---------------------------------------------
 ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
 
-# 8. Configuración CRÍTICA de DNS (Resolv.conf)
-# Esto permite que el servidor se encuentre a sí mismo
-chattr -i /etc/resolv.conf 2>/dev/null
-echo "domain $REALM" > /etc/resolv.conf
-echo "search $REALM" >> /etc/resolv.conf
-echo "nameserver 127.0.0.1" >> /etc/resolv.conf
-# Opcional: bloquear para que NetworkManager no lo sobrescriba
-# chattr +i /etc/resolv.conf 
+# --- 7. DNS / resolv.conf ------------------------------------
+chattr -i /etc/resolv.conf 2>/dev/null || true
+{
+    echo "domain $REALM"
+    echo "search $REALM"
+    echo "nameserver 127.0.0.1"
+} > /etc/resolv.conf
 
-# 9. Activación del servicio
+# --- 8. Activar el servicio ----------------------------------
 systemctl unmask samba-ad-dc
 systemctl enable samba-ad-dc
 systemctl start samba-ad-dc
 
-# 10. Creación de Objetos (OU y Usuario)
-echo "⏳ Esperando 10 segundos a que el AD DC levante..."
+# --- 9. Crear OU y usuario de prueba -------------------------
+log_info "Esperando a que el AD DC arranque..."
 sleep 10
-samba-tool ou create "OU=tecnolobato,DC=${DOMAIN,,},DC=local" 2>/dev/null
-samba-tool user add "usuario_test" "$ADMIN_PASS" --userou="OU=tecnolobato" 2>/dev/null
 
-echo "------------------------------------------------------------"
-echo "🚀 ¡DOMINIO LISTO!"
-echo "Interfaz activa: $IFACE_NAME | IP: $IP_SERV"
-echo "Dominio: $REALM"
-echo "------------------------------------------------------------"
-echo "⚠️ IMPORTANTE EN WINDOWS:"
-echo "1. Cambia el DNS de tu tarjeta de red a: $IP_SERV"
-echo "2. Desactiva el Firewall de Windows para la primera prueba."
-echo "3. Une el equipo al dominio: $REALM"
-echo "------------------------------------------------------------"
+OU_NAME="tecnolobato"
+if ! samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+    samba-tool ou create "OU=${OU_NAME},${BASE_DN}"
+    log_ok "OU 'OU=${OU_NAME}' creada."
+else
+    log_info "La OU 'OU=${OU_NAME}' ya existe."
+fi
+
+if ! samba-tool user list 2>/dev/null | grep -qx "usuario_test"; then
+    samba-tool user create "usuario_test" "$ADMIN_PASS" --userou="OU=${OU_NAME}"
+    log_ok "Usuario 'usuario_test' creado."
+else
+    log_info "El usuario 'usuario_test' ya existe."
+fi
+
+# --- 10. Resumen ---------------------------------------------
+cat <<EOF
+
+${C_GREEN}${C_BOLD}🚀 ¡DOMINIO LISTO!${C_RESET}
+  Interfaz : $IFACE_NAME
+  IP       : $IP_SERV
+  Dominio  : $REALM
+  Base DN  : $BASE_DN
+
+${C_YELLOW}⚠️  Pasos en el cliente Windows:${C_RESET}
+  1. Configura el DNS de la tarjeta de red en: $IP_SERV
+  2. Desactiva el firewall de Windows para la primera prueba.
+  3. Une el equipo al dominio: $REALM
+
+EOF

@@ -1,50 +1,66 @@
 #!/bin/bash
+# =============================================================
+#  import_iso.sh - Extrae kernel/initrd de una ISO al arranque PXE
+#  Uso:  sudo ./import_iso.sh /ruta/a/la.iso nombre_os
+# =============================================================
+set -euo pipefail
 
-ISO_PATH=$1
-OS_NAME=$2
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-if [ -z "$ISO_PATH" ] || [ -z "$OS_NAME" ]; then
-    echo "Uso: sudo ./import_iso.sh /ruta/a/la.iso nombre_os"
+require_root
+
+ISO_PATH="${1:-}"
+OS_NAME="${2:-}"
+if [[ -z "$ISO_PATH" || -z "$OS_NAME" ]]; then
+    echo "Uso: sudo $0 /ruta/a/la.iso nombre_os"
     exit 1
 fi
+[[ -f "$ISO_PATH" ]] || die "No existe la ISO: $ISO_PATH"
+command_exists tftp >/dev/null 2>&1 || true
 
-# 1. Crear directorios
 MOUNT_POINT="/mnt/iso_tmp"
-TARGET_DIR="/var/lib/tftpboot/$OS_NAME"
-sudo mkdir -p $MOUNT_POINT $TARGET_DIR
+TARGET_DIR="${TFTP_DIR}/${OS_NAME}"
+mkdir -p "$MOUNT_POINT" "$TARGET_DIR"
 
-# 2. Montar ISO (solo lectura)
-sudo mount -o loop "$ISO_PATH" $MOUNT_POINT
+cleanup() { mountpoint -q "$MOUNT_POINT" && umount "$MOUNT_POINT" || true; }
+trap cleanup EXIT
 
-# 3. Buscar y extraer Kernel e Initrd (nombres comunes)
-echo "Extrayendo archivos de arranque..."
-sudo cp $(find $MOUNT_POINT -name vmlinuz* | head -n 1) $TARGET_DIR/vmlinuz
-sudo cp $(find $MOUNT_POINT -name initrd* | head -n 1) $TARGET_DIR/initrd
+log_info "Montando la ISO..."
+mount -o loop,ro "$ISO_PATH" "$MOUNT_POINT"
 
-# 4. Añadir entrada al menú de PXE
-MENU_FILE="/var/lib/tftpboot/pxelinux.cfg/default"
+log_info "Extrayendo kernel e initrd..."
+VMLINUZ="$(find "$MOUNT_POINT" -name 'vmlinuz*' -print -quit)"
+INITRD="$(find "$MOUNT_POINT" -name 'initrd*' -print -quit)"
+[[ -n "$VMLINUZ" ]] || die "No se encontró 'vmlinuz' dentro de la ISO."
+[[ -n "$INITRD" ]] || die "No se encontró 'initrd' dentro de la ISO."
 
-# Si el archivo no existe, creamos la cabecera básica
-if [ ! -f "$MENU_FILE" ]; then
-    sudo bash -c "cat <<EOF > $MENU_FILE
+cp "$VMLINUZ" "$TARGET_DIR/vmlinuz"
+cp "$INITRD" "$TARGET_DIR/initrd"
+
+MENU_FILE="${TFTP_DIR}/pxelinux.cfg/default"
+mkdir -p "$(dirname "$MENU_FILE")"
+if [[ ! -f "$MENU_FILE" ]]; then
+    cat > "$MENU_FILE" <<EOF
 DEFAULT menu.c32
 PROMPT 0
 TIMEOUT 300
 ONTIMEOUT local
 
 MENU TITLE --- Menu de Instalacion PXE ---
-EOF"
+EOF
 fi
 
-# Añadir la nueva opción al menú
-sudo bash -c "cat <<EOF >> $MENU_FILE
+SERVER_IP="$(detect_server_ip)"
+{
+    echo ""
+    echo "LABEL $OS_NAME"
+    echo "    MENU LABEL Instalar $OS_NAME"
+    echo "    KERNEL $OS_NAME/vmlinuz"
+    echo "    APPEND initrd=$OS_NAME/initrd boot=casper netboot=nfs nfsroot=${SERVER_IP}:${PXE_ISO_DIR}/${OS_NAME}"
+} >> "$MENU_FILE"
 
-LABEL $OS_NAME
-    MENU LABEL Instalar $OS_NAME
-    KERNEL $OS_NAME/vmlinuz
-    APPEND initrd=$OS_NAME/initrd boot=casper netboot=nfs nfsroot=192.168.1.10:/srv/pxe/isos/$OS_NAME
-EOF"
-
-# 5. Limpieza
-sudo umount $MOUNT_POINT
-echo "¡Hecho! $OS_NAME ha sido añadido al servidor PXE."
+log_ok "$OS_NAME añadido al servidor PXE (nfsroot=${SERVER_IP}:${PXE_ISO_DIR}/${OS_NAME})."

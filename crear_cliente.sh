@@ -1,41 +1,51 @@
 #!/bin/bash
+# =============================================================
+#  crear_cliente.sh - Despliega un cliente desde un disco base
+#  Uso:  sudo ./crear_cliente.sh
+# =============================================================
+set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# Configuración
-TEMPLATE="/srv/pxe/templates/windows10_base.qcow2"
-STORAGE_DIR="/var/lib/libvirt/images"
-SERVER_IP="172.16.229.232"
+require_root
+command_exists virt-install || die "virt-install no está instalado (paquete virtinst)."
+
+TEMPLATE="${TEMPLATE:-/srv/pxe/templates/windows10_base.qcow2}"
 
 echo "=== SISTEMA DE DESPLIEGUE RÁPIDO DE CLIENTES ==="
 
-# 1. Datos de la nueva máquina
-read -p "Introduce el nombre del nuevo cliente: " VM_NAME
-read -p "Introduce la IP para anotar (ej: 172.16.2.80): " VM_IP
+read -r -p "Nombre del nuevo cliente: " VM_NAME
+[[ -n "$VM_NAME" ]] || die "El nombre no puede estar vacío."
 
-# 2. Clonación
-echo "Clonando disco..."
-sudo cp "$TEMPLATE" "$STORAGE_DIR/$VM_NAME.qcow2"
+if virsh dominfo "$VM_NAME" >/dev/null 2>&1; then
+    die "Ya existe una VM llamada '$VM_NAME'."
+fi
+[[ -f "$TEMPLATE" ]] || die "No existe el disco base: $TEMPLATE"
 
-# 3. Creación de la VM (Asegúrate de las barras invertidas al final de cada línea)
-echo "Iniciando $VM_NAME..."
+read -r -p "IP para anotar (ej: 172.16.2.80, opcional): " VM_IP
 
-sudo virt-install \
-  --name "$VM_NAME" \
-  --ram 4096 \
-  --vcpus 2 \
-  --disk path="$STORAGE_DIR/$VM_NAME.qcow2",format=qcow2 \
-  --os-variant win10 \
-  --network bridge=br0,model=e1000 \
-  --graphics vnc,listen=0.0.0.0,port=-1 \
-  --import \
-  --noautoconsole
+log_info "Copiando disco base..."
+cp "$TEMPLATE" "${STORAGE_DIR}/${VM_NAME}.qcow2"
 
-# Obtener puerto VNC asignado
-PORT=$(sudo virsh domdisplay "$VM_NAME" | cut -d: -f3)
-ACTUAL_PORT=$((5900 + PORT))
+ensure_bridge "${BRIDGE_IFACE}" "${PHYS_IFACE}"
 
-echo "----------------------------------------------------"
-echo "¡VM DESPLEGADA CON ÉXITO!"
-echo "1. Conéctate por VNC a: $SERVER_IP:$ACTUAL_PORT"
-echo "2. Configura en Windows -> IP: $VM_IP | GW: 172.16.50.6"
-echo "----------------------------------------------------"
+log_info "Creando la VM '$VM_NAME'..."
+virt-install \
+    --name "$VM_NAME" \
+    --ram "$VM_RAM" \
+    --vcpus "$VM_VCPUS" \
+    --disk path="${STORAGE_DIR}/${VM_NAME}.qcow2",format=qcow2 \
+    --os-variant "$OS_VARIANT" \
+    --network bridge="${BRIDGE_IFACE}",model=e1000 \
+    --graphics vnc,listen=0.0.0.0,port=-1 \
+    --import \
+    --noautoconsole
+
+show_vnc_info "$VM_NAME"
+if [[ -n "$VM_IP" ]]; then
+    echo "IP configurada para el cliente: $VM_IP"
+fi

@@ -1,152 +1,118 @@
 # Clientes-Virtuales
-Este proyecto consiste en el diseño, despliegue y administración de una infraestructura de red profesional basada en software libre, combinando virtualización de alto rendimiento con servicios de directorio activo corporativo.
-🚀 Proyecto: Infraestructura de Red con Samba AD DC y Virtualización KVM
 
-Este documento recoge la configuración completa, scripts de automatización y procedimientos de administración para un entorno de red basado en Ubuntu Server, gestionando identidades mediante Samba 4 y máquinas virtuales mediante KVM.
-🌐 1. Configuración del Servidor (Bridge y Dominio)
+Infraestructura de red profesional basada en software libre: **Samba 4 AD DC**
+(controlador de dominio) sobre **Ubuntu Server** y virtualización de clientes con
+**KVM/QEMU + libvirt**, con conectividad directa de capa 2 mediante un **bridge**.
 
-Este script (dominio_final.sh) configura automáticamente la red en modo puente, instala los requisitos y provisiona el dominio.
-Bash
+Alternativa de código abierto a Windows Server para centralizar identidades,
+DNS y administración jerárquica por Unidades Organizativas (OU).
+
+## 📁 Estructura del repositorio
+
+| Archivo                | Descripción                                                        |
+|------------------------|--------------------------------------------------------------------|
+| `config.sh`            | **Configuración central** (dominio, contraseñas, rutas, red).      |
+| `lib.sh`               | Funciones comunes (logs, bridge, VNC, comprobaciones).             |
+| `dominio.sh`           | Configura y provisiona el Samba AD DC.                             |
+| `create_vm.sh`         | Crea el bridge y una VM desde una ISO de instalación.              |
+| `clonar.sh`            | Clona una VM plantilla con `virt-clone`.                           |
+| `crear_cliente.sh`     | Despliega un cliente desde un disco base ya preparado.             |
+| `crear_usuarios.sh`    | Alta rápida de usuarios en una OU.                                 |
+| `gestion_usuarios.sh`  | Crea una OU (si hace falta) y da de alta un usuario.               |
+| `import_iso.sh`        | Extrae kernel/initrd de una ISO para arranque PXE.                 |
+| `instruciones`         | Guía de orden de ejecución y resolución de problemas.              |
+| `presentacion.html`    | Presentación del proyecto.                                         |
+
+## ⚙️ Configuración
+
+Todos los scripts leen sus variables desde `config.sh`. Para no editar el archivo,
+puedes exportar variables antes de ejecutar:
+
 ```bash
-#!/bin/bash
-# --- 1. CONFIGURACIÓN AUTOMÁTICA DE RED (BRIDGE) ---
-PHYS_IFACE=$(ip -4 route | grep default | awk '{print $5}' | head -n1)
-IP_ACTUAL=$(ip -4 addr show "$PHYS_IFACE" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1)
-GW_ACTUAL=$(ip -4 route | grep default | awk '{print $3}' | head -n1)
-
-echo "🌐 Configurando Bridge br0 sobre $PHYS_IFACE..."
-sudo ip link add name br0 type bridge 2>/dev/null
-sudo ip link set br0 up
-sudo ip addr flush dev "$PHYS_IFACE"
-sudo ip link set "$PHYS_IFACE" master br0
-sudo ip addr add "$IP_ACTUAL/24" dev br0
-sudo ip route add default via "$GW_ACTUAL" dev br0
-
-# --- 2. PREPARACIÓN DEL ENTORNO ---
-REALM="TECNOLOBATO.LOCAL"
-DOMAIN="TECNOLOBATO"
-ADMIN_PASS='TecnoLobato2026!'
-
-echo "🛑 Desactivando servicios que bloquean el puerto 53..."
-sudo systemctl stop systemd-resolved
-sudo systemctl disable systemd-resolved
-sudo rm -f /etc/resolv.conf
-echo "nameserver 127.0.0.1" > /etc/resolv.conf
-echo "search $REALM" >> /etc/resolv.conf
-
-# --- 3. INSTALACIÓN Y PROVISIÓN ---
-echo "⚙️ Instalando Samba AD DC y esquemas necesarios..."
-sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt install -y samba krb5-config krb5-user smbclient winbind samba-ad-provision python3-samba
-
-sudo systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null
-sudo rm -f /etc/samba/smb.conf
-sudo rm -rf /var/lib/samba/private/*
-
-echo "🔨 Proviniendo el dominio..."
-sudo samba-tool domain provision \
-  --server-role=dc \
-  --use-rfc2307 \
-  --dns-backend=SAMBA_INTERNAL \
-  --realm="$REALM" \
-  --domain="$DOMAIN" \
-  --adminpass="$ADMIN_PASS" \
-  --option="dns forwarder = 8.8.8.8" \
-  --option="bind interfaces only = yes" \
-  --option="interfaces = lo br0"
-
-# --- 4. ARRANQUE Y PERSISTENCIA ---
-sudo ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
-sudo systemctl unmask samba-ad-dc
-sudo systemctl enable samba-ad-dc
-sudo systemctl start samba-ad-dc
-
-echo "✅ TODO LISTO. IP del Servidor: $IP_ACTUAL"
-
+sudo ADMIN_PASS='OtraClave!' REALM=MIEMPRESA.LOCAL ./dominio.sh
 ```
 
-🖥️ 2. Automatización de Virtualización (Clonación)
+Variables principales: `REALM`, `DOMAIN`, `ADMIN_PASS`, `DNS_FORWARDER`,
+`BRIDGE_IFACE`, `STORAGE_DIR`, `VM_RAM`, `VM_VCPUS`, `VM_DISK_GB`, `SERVER_IP`.
 
-Script (clonar.sh) para duplicar estaciones de trabajo de forma segura.
-Bash
+> ⚠️ **Seguridad:** cambia `ADMIN_PASS` antes de usar en producción. No la dejes
+> en texto plano en un repositorio compartido.
+
+## 🚀 Orden de ejecución
+
 ```bash
-#!/bin/bash
-echo "Máquinas virtuales detectadas:"
-sudo virsh list --all
+# 1. Provisionar el controlador de dominio (crea el bridge y el AD DC)
+sudo ./dominio.sh br0
 
-read -p "Introduce el nombre de la VM a clonar: " VM_ORIGINAL
-read -p "Introduce el nombre para la nueva VM: " VM_NUEVA
+# 2. Crear la VM maestra/plantilla desde una ISO
+sudo ./create_vm.sh
 
-ESTADO=$(sudo virsh domstate "$VM_ORIGINAL")
+# 3. Clonar la plantilla tantas veces como clientes necesites
+sudo ./clonar.sh Windows10_Base Cliente01
 
-if [ "$ESTADO" = "running" ]; then
-    echo "⚠️ Pausando VM para clonar..."
-    sudo virsh suspend "$VM_ORIGINAL"
-fi
-
-sudo virt-clone \
-  --original "$VM_ORIGINAL" \
-  --name "$VM_NUEVA" \
-  --file /var/lib/libvirt/images/"$VM_NUEVA".qcow2
-
-if [ "$ESTADO" = "running" ]; then
-    sudo virsh resume "$VM_ORIGINAL"
-fi
-echo "✅ Clonación finalizada."
-
-``
-
-🛠️ 3. Guía de Administración del Directorio
-Gestión de Usuarios y Grupos
-
-    Añadir Usuario:
-```bash
-#!/bin/bash
-    sudo samba-tool user add "nombre" "Contraseña123!"
-
-``
-      
-
-    Borrar Usuario:
-```bash
-#!/bin/bash
-    sudo samba-tool user delete "nombre"
-
-``
-
-      
-
-    Asignar Administrador:
-```bash
-#!/bin/bash
-    sudo samba-tool group addmembers "Domain Admins" "nombre"
-
-``
-
-      
-
-Unidades Organizativas (OU)
-
-    Crear OU:
-```bash
-#!/bin/bash
-    sudo samba-tool ou create "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
-
+# 4. Gestión de identidades
+sudo ./crear_usuarios.sh
+sudo ./gestion_usuarios.sh
 ```
 
-      
+## 🌐 1. Configuración del servidor (bridge + dominio)
 
-    Eliminar OU:
-    ```bash
-    #!/bin/bash
-    sudo samba-tool ou delete "OU=Alumnos,DC=TECNOLOBATO,DC=LOCAL"
-    
-    ```
+`dominio.sh`:
 
-      
+1. Detecta/valida la interfaz de red y limpia IPs residuales del bridge.
+2. Configura el nombre de host y `/etc/hosts`.
+3. Instala `samba`, `krb5`, `winbind`, `samba-ad-provision`, etc.
+4. Provisiona el dominio con DNS interno y `dns forwarder`.
+5. Enlaza Kerberos y ajusta `/etc/resolv.conf` a `127.0.0.1`.
+6. Habilita y arranca `samba-ad-dc`.
+7. Crea la OU `tecnolobato` y el usuario `usuario_test` si no existen.
 
-📝 4. Descripción Técnica del Proyecto
+## 🖥️ 2. Automatización de virtualización
 
-Este proyecto implementa una alternativa de código abierto a Windows Server mediante Samba 4 AD DC[cite: 1]. Utiliza virtualización KVM/QEMU para el despliegue de clientes, optimizando el uso de recursos mediante un Bridge de red que otorga conectividad directa a nivel de capa 2 a cada VM[cite: 1].
+La creación del bridge es **idempotente** (`ensure_bridge` en `lib.sh`): si `br0`
+ya existe lo reutiliza y solo esclaviza la interfaz física si hace falta, evitando
+dejar el host sin red.
 
-La infraestructura centraliza la seguridad, las identidades y la resolución de nombres (DNS), permitiendo la administración jerárquica mediante Unidades Organizativas y el control total desde la terminal de Linux[cite: 1].
+| Script             | Uso                                                        |
+|--------------------|------------------------------------------------------------|
+| `create_vm.sh`     | Crea bridge + VM nueva desde ISO.                          |
+| `clonar.sh`        | Clona una plantilla (pausa/reanuda la original si corre).  |
+| `crear_cliente.sh` | Copia un disco base y arranca el cliente (`--import`).     |
+
+En todos los casos el script muestra la URL VNC real asignada dinámicamente
+(`--graphics vnc,port=-1`).
+
+## 🛠️ 3. Administración del directorio
+
+```bash
+# Añadir usuario
+sudo samba-tool user create nombre 'Contraseña123!' --userou="OU=tecnolobato"
+
+# Borrar usuario
+sudo samba-tool user delete nombre
+
+# Añadir a administradores
+sudo samba-tool group addmembers "Domain Admins" nombre
+
+# Crear / eliminar OU
+sudo samba-tool ou create "OU=Alumnos,${BASE_DN}"
+sudo samba-tool ou delete "OU=Alumnos,${BASE_DN}"
+```
+
+## 🔧 Resolución de problemas
+
+- **Sin red tras crear el bridge:** vuelve a ejecutar `ensure_bridge` (vía
+  `dominio.sh`) o asigna IP manualmente al bridge.
+- **`samba-tool` no encontrado:** ejecuta primero `dominio.sh`.
+- **VNC rechazado:** verifica que la VM esté arrancada (`virsh list`) y usa el
+  puerto que muestra el script.
+- **IPs cambiantes:** define `SERVER_IP` y usa reservas DHCP para que los accesos
+  VNC no se rompan.
+
+## 📝 Descripción técnica
+
+Se implementa una alternativa libre a Windows Server con Samba 4 AD DC. La
+virtualización KVM/QEMU despliega los clientes y un bridge de red otorga
+conectividad de capa 2 a cada VM. La infraestructura centraliza seguridad,
+identidades, resolución de nombres (DNS) y administración jerárquica mediante OU,
+todo gestionado desde la terminal de Linux.
