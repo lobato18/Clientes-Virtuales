@@ -21,7 +21,9 @@ if [[ -z "$IFACE_NAME" ]]; then
     log_info "Interfaces disponibles:"
     mapfile -t INTERFACES < <(ls /sys/class/net | grep -v '^lo$')
     select IFACE_NAME in "${INTERFACES[@]}"; do
-        [[ -n "$IFACE_NAME" ]] && break
+        if [[ -n "$IFACE_NAME" ]]; then
+            break
+        fi
         log_warn "Selección no válida."
     done
 fi
@@ -32,7 +34,7 @@ IP_SERV="$(iface_ip "$IFACE_NAME")"
 # Si es un bridge, limpiamos IPs residuales SOLO si la interfaz física aún
 # tiene una IP (si el bridge está bien montado, no debería tener ninguna).
 if [[ -d "/sys/class/net/$IFACE_NAME/bridge" ]]; then
-    PHYS="$(ip link show | grep "master $IFACE_NAME" | awk -F': ' '{print $2}' | head -n1)"
+    PHYS="$(ip link show | grep "master $IFACE_NAME" | awk -F': ' '{print $2}' | head -n1 || true)"
     if [[ -n "$PHYS" && -n "$(iface_ip "$PHYS")" ]]; then
         log_warn "La interfaz física '$PHYS' tiene IP ($(iface_ip "$PHYS")); la libero (el bridge ya la tiene)."
         ip addr flush dev "$PHYS"
@@ -58,6 +60,13 @@ apt-get install -y -qq samba krb5-config krb5-user smbclient winbind \
     samba-ad-provision python3-samba acl attr
 
 # --- 4. Limpieza previa de Samba -----------------------------
+# Salvaguarda: no borrar un dominio ya provisionado sin confirmarlo.
+if [[ -f /var/lib/samba/private/sam.ldb ]]; then
+    log_warn "Ya existe un dominio provisionado en este equipo."
+    log_warn "Continuar RE-PROVISIONARÁ y BORRARÁ la base de datos, usuarios y OUs actuales."
+    confirm "¿Reprovisionar el dominio de todos modos?" || die "Cancelado: no se tocó el dominio existente."
+fi
+
 systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null || true
 systemctl disable smbd nmbd winbind 2>/dev/null || true
 if [[ -f /etc/samba/smb.conf ]]; then
@@ -99,7 +108,7 @@ log_info "Esperando a que el AD DC arranque..."
 sleep 10
 
 OU_NAME="tecnolobato"
-if ! samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+if ! samba-tool ou list 2>/dev/null | grep -qix "OU=${OU_NAME}"; then
     samba-tool ou create "OU=${OU_NAME},${BASE_DN}"
     log_ok "OU 'OU=${OU_NAME}' creada."
 else

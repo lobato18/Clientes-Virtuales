@@ -22,7 +22,7 @@ read -r -p "Nombre de la Unidad Organizativa (ej: Ventas): " OU_NAME
 [[ -n "$OU_NAME" ]] || die "El nombre de la OU no puede estar vacío."
 OU_DN="OU=${OU_NAME},${BASE_DN}"
 
-if samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+if samba-tool ou list 2>/dev/null | grep -qix "OU=${OU_NAME}"; then
     log_warn "La OU '$OU_NAME' ya existe."
     if ! confirm "¿Unir al nuevo usuario a esta OU existente?"; then
         die "Operación cancelada por el usuario."

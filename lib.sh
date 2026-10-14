@@ -35,7 +35,9 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 confirm() {
     # ASSUME_YES=1 fuerza la respuesta afirmativa (modo desatendido).
-    [[ "${ASSUME_YES:-0}" == "1" ]] && return 0
+    if [[ "${ASSUME_YES:-0}" == "1" ]]; then
+        return 0
+    fi
     local reply
     read -r -p "${1:-¿Continuar?} [s/N]: " reply
     [[ "$reply" =~ ^[SsYy]$ ]]
@@ -43,13 +45,13 @@ confirm() {
 
 # Detecta la interfaz física de salida (default route).
 detect_phys_iface() {
-    ip -4 route show default 2>/dev/null | awk '{print $5; exit}'
+    ip -4 route show default 2>/dev/null | awk '{print $5; exit}' || true
 }
 
 # Devuelve la primera IPv4 de una interfaz.
 iface_ip() {
     ip -4 addr show "$1" 2>/dev/null \
-        | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1
+        | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1 || true
 }
 
 # IP del host KVM, para mostrar la URL de VNC.
@@ -62,7 +64,9 @@ detect_server_ip() {
     ip="$(iface_ip "${BRIDGE_IFACE:-br0}")"
     if [[ -z "$ip" ]]; then
         phys="$(detect_phys_iface)"
-        [[ -n "$phys" ]] && ip="$(iface_ip "$phys")"
+        if [[ -n "$phys" ]]; then
+            ip="$(iface_ip "$phys")"
+        fi
     fi
     echo "${ip:-127.0.0.1}"
 }
@@ -128,7 +132,9 @@ bridge_via_nmcli() {
     local port="${br}-port"
     local orig_conn
     orig_conn="$(nmcli -t -g GENERAL.CONNECTION device show "$phys" 2>/dev/null | head -n1)"
-    [[ "$orig_conn" == "--" ]] && orig_conn=""
+    if [[ "$orig_conn" == "--" ]]; then
+        orig_conn=""
+    fi
 
     log_info "Creando bridge '$br' con NetworkManager sobre '$phys'..."
 
@@ -181,12 +187,14 @@ bridge_manual() {
     local ip_cidr gw mac
     ip_cidr="$(ip -4 -o addr show "$phys" 2>/dev/null | awk '{print $4; exit}')"
     gw="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
-    mac="$(cat "/sys/class/net/$phys/address" 2>/dev/null)"
+    mac="$(cat "/sys/class/net/$phys/address" 2>/dev/null || true)"
 
     log_info "Creando bridge '$br' manualmente sobre '$phys'..."
     ip link add name "$br" type bridge || die "No se pudo crear el bridge."
     ip link set "$br" up
-    [[ -n "$mac" ]] && ip link set "$br" address "$mac"
+    if [[ -n "$mac" ]]; then
+        ip link set "$br" address "$mac"
+    fi
     ip link set "$phys" up
     ip link set "$phys" master "$br" || {
         ip link del "$br" 2>/dev/null || true
@@ -198,7 +206,9 @@ bridge_manual() {
         ip addr flush dev "$phys"
         ip addr add "$ip_cidr" dev "$br"
     fi
-    [[ -n "$gw" ]] && ip route replace default via "$gw" dev "$br"
+    if [[ -n "$gw" ]]; then
+        ip route replace default via "$gw" dev "$br"
+    fi
 
     if ! verify_connectivity "$gw"; then
         log_warn "Sin conectividad; revirtiendo cambios de red..."
@@ -213,14 +223,18 @@ _bridge_rollback_manual() {
     ip addr flush dev "$br" 2>/dev/null || true
     ip link set "$phys" nomaster 2>/dev/null || true
     ip link del "$br" 2>/dev/null || true
-    [[ -n "$ip_cidr" ]] && ip addr add "$ip_cidr" dev "$phys"
-    [[ -n "$gw" ]] && ip route replace default via "$gw" dev "$phys"
+    if [[ -n "$ip_cidr" ]]; then
+        ip addr add "$ip_cidr" dev "$phys"
+    fi
+    if [[ -n "$gw" ]]; then
+        ip route replace default via "$gw" dev "$phys"
+    fi
 }
 
 # Dado el nombre de una VM, imprime el puerto VNC TCP (ej: 5901).
 vnc_tcp_port() {
     local vm="$1" display port
-    display="$(virsh domdisplay "$vm" 2>/dev/null)"
+    display="$(virsh domdisplay "$vm" 2>/dev/null || true)"
     port="${display##*:}"
     if [[ "$port" =~ ^[0-9]+$ ]]; then
         if (( port >= 5900 )); then
@@ -236,7 +250,10 @@ wait_for_vnc() {
     local vm="$1" port="" i
     for i in {1..10}; do
         port="$(vnc_tcp_port "$vm")"
-        [[ -n "$port" ]] && { echo "$port"; return 0; }
+        if [[ -n "$port" ]]; then
+            echo "$port"
+            return 0
+        fi
         sleep 1
     done
     return 1

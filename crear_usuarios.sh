@@ -26,7 +26,7 @@ read -r -p "Nombre del nuevo usuario (ej: lobato01): " NEW_USER
 read -r -s -p "Contraseña para $NEW_USER: " USER_PASS
 echo ""
 
-if ! samba-tool ou list 2>/dev/null | grep -qi "OU=${OU_NAME},"; then
+if ! samba-tool ou list 2>/dev/null | grep -qix "OU=${OU_NAME}"; then
     log_info "La OU 'OU=${OU_NAME}' no existe; creándola..."
     samba-tool ou create "OU=${OU_NAME},${BASE_DN}"
 fi
